@@ -1,79 +1,35 @@
 import streamlit as st
-from openai import OpenAI
-import motores
 
-st.set_page_config(page_title="Plataforma Infotécnica Central", page_icon="⚡", layout="wide")
+# Configuración
+st.set_page_config(page_title="Test Estructura", layout="wide")
 
-st.title("⚡ Plataforma Unificada de Infotécnica")
-st.write("Selecciona una de las herramientas automáticas o interactúa con el Agente de IA.")
+# 1. BARRA LATERAL (AGENTE)
+with st.sidebar:
+    st.title("🤖 Agente de IA")
+    st.info("Aquí está el chat del agente listo para el desarrollo que involucra IA.")
+    st.chat_input("Escribe al agente...")
 
-if "OPENAI_API_KEY" in st.secrets:
-    api_key = st.secrets["OPENAI_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("🔑 OpenAI API Key (Para el Agente):", type="password")
+# 2. CUERPO PRINCIPAL
+st.title("⚡ Visualización de Plataforma Infotécnica")
+st.markdown("---")
 
-# AGENTE DE IA (BARRA LATERAL)
-st.sidebar.title("🤖 Agente de IA")
-st.sidebar.write("Este agente está integrado para interactuar con los desarrollos analíticos.")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Hola, soy tu agente de Infotécnica. ¿En qué desarrollo o análisis te ayudo hoy?"}]
-
-for msg in st.session_state.messages:
-    st.sidebar.chat_message(msg["role"]).write(msg["content"])
-
-if prompt := st.sidebar.chat_input("Pregúntale al agente..."):
-    st.sidebar.chat_message("user").write(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    if not api_key:
-        st.sidebar.error("Por favor, introduce una API Key para hablar con el agente.")
-    else:
-        try:
-            client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "Eres un asistente experto en ingeniería eléctrica e infotécnica."}] + st.session_state.messages
-            )
-            answer = response.choices[0].message.content
-            st.sidebar.chat_message("assistant").write(answer)
-            st.session_state.messages.append({"role": "assistant", "content": answer})
-        except Exception as e:
-            st.sidebar.error(f"Error del Agente: {e}")
-
-# BOTONES DE EXTRACCIÓN
-st.subheader("🛠️ Módulos de Ejecución de Código")
+# 3. LOS 3 BOTONES EN COLUMNAS
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.info("### 🆔 Infotécnica XID")
-    st.write("Extrae parámetros específicos utilizando identificadores XID.")
-    input_xid = st.text_input("Ingresa el parámetro XID:", value="XID-9942", key="xid_in")
-    
-    if st.button("Ejecutar XID", type="primary", use_container_width=True):
-        with st.spinner("Ejecutando código XID..."):
-            resultado = motores.extraer_infotecnica_xid(input_xid)
-            st.success("¡Extracción XID Finalizada!")
-            st.json(resultado)
+    st.subheader("🆔 XID")
+    st.text_input("Parámetro XID", "XID-001")
+    st.button("Ejecutar XID", type="primary", use_container_width=True)
 
 with col2:
-    st.success("### 📉 Datos Lineales")
-    st.write("Procesa y extrae la información de tramos y líneas de transmisión.")
-    input_linea = st.text_input("ID de la Línea:", value="L-220kV", key="linea_in")
-    
-    if st.button("Ejecutar Datos Lineales", type="primary", use_container_width=True):
-        with st.spinner("Procesando líneas..."):
-            tabla_resultado = motores.extraer_datos_lineales(input_linea)
-            st.success("¡Cálculo de Líneas Finalizado!")
-            st.dataframe(tabla_resultado, use_container_width=True)
+    st.subheader("📉 Lineales")
+    st.text_input("ID Línea", "L-100")
+    st.button("Ejecutar Lineales", type="primary", use_container_width=True)
 
 with col3:
-    st.warning("### 🏢 Por Subestación")
-    st.write("Filtra, extrae y analiza el estado por nodos de subestaciones.")
-    input_sub = st.text_input("Nombre de Subestación:", value="SE Central", key="sub_in")
-    
-    if st.button("Ejecutar por Subestación", type="primary", use_container_width=True):
-        with st.spinner("Consultando Subestación..."):
-            texto_resultado = motores.extraer_por_subestacion(input_sub)
-            st.success("¡Consulta de Subestación Finalizada!")
-            st.code(texto_resultado, language="markdown")
+    st.subheader("🏢 Subestación")
+    st.text_input("Nombre SE", "Norte")
+    st.button("Ejecutar Subestación", type="primary", use_container_width=True)
+
+st.markdown("---")
+st.write("✅ **Si ves esto, la estructura es correcta.** Los botones dispararán tus otros códigos de Python cuando los pegues en el archivo `motores.py`.")
