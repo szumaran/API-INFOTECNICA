@@ -17,17 +17,17 @@ st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.subheader("🆔 XID")
+    st.subheader("Listado ID")
     st.text_input("Parámetro XID", "XID-001")
     st.button("Ejecutar XID", type="primary", use_container_width=True)
 
 with col2:
-    st.subheader("📉 Lineales")
+    st.subheader("Elementos Serie")
     st.text_input("ID Línea", "L-100")
     st.button("Ejecutar Lineales", type="primary", use_container_width=True)
 
 with col3:
-    st.subheader("🏢 Subestación")
+    st.subheader("ID Subestación")
     st.text_input("Nombre SE", "Norte")
     st.button("Ejecutar Subestación", type="primary", use_container_width=True)
 
