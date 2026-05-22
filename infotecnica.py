@@ -8,11 +8,18 @@ import re
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Dict, List, Optional
-import win32com.client as win32
+
+# openpyxl reemplaza a win32com para ser compatible con la nube (Linux)
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
 
 # Configuración de logging básico
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-locale.setlocale(locale.LC_NUMERIC, '')
+
+try:
+    locale.setlocale(locale.LC_NUMERIC, '')
+except Exception:
+    pass # Evita caídas en sistemas donde el locale esté configurado distinto
 
 BASE_URLS = {
     'subestaciones': 'https://api-infotecnica.coordinador.cl/v1/subestaciones',
@@ -224,8 +231,7 @@ class ApiClient:
                 if pano.get('nombre', '').lower() == nombre_extremo.lower():
                     return pano.get('nemotecnico', '')
             return datos[0].get('nemotecnico', '')
-        else:
-            return None
+        return None
         
     async def buscar_equipos_por_nemotecnico(self, nemotecnico_pano: str, tipo_equipo: str) -> List[Dict[str, Any]]:
         url = f"{BASE_URLS[tipo_equipo]}/?search={nemotecnico_pano}"
@@ -514,47 +520,60 @@ def realizar_operaciones_3d(datos: List[Transformador3D]) -> List[Dict[str, Any]
             })
     return resultados
 
-def colorear_celda(celda: Any, estado_certificacion: str) -> None:
-    colores = {'Validado': (204, 255, 204), 'Rechazado': (244, 176, 132), 'En Uso': (255, 230, 153)}
-    if estado_certificacion in colores:
-        r, g, b = colores[estado_certificacion]
-        celda.Interior.Color = (b << 16) + (g << 8) + r
+def aplicar_color_openpyxl(cell, estado_certificacion: str):
+    """Aplica colores a la celda usando openpyxl (compatible con sistemas Linux en la nube)."""
+    colores_hex = {
+        'Validado': 'CCFFCC',   # Verde claro
+        'Rechazado': 'F4B084',  # Naranja/Rojo claro
+        'En Uso': 'FFE699'      # Amarillo claro
+    }
+    if estado_certificacion in colores_hex:
+        cell.fill = PatternFill(start_color=colores_hex[estado_certificacion], end_color=colores_hex[estado_certificacion], fill_type='solid')
 
 def crear_archivo_excel(datos_im, datos_t2d, datos_t3d, datos_st, datos_des, datos_tc, datos_to, datos_ug) -> str:
-    """Crea y guarda el archivo Excel devolviendo la ruta absoluta del mismo."""
-    excel = win32.DispatchEx('Excel.Application')
-    excel.Visible = False
-    workbook = excel.Workbooks.Add()
-    while workbook.Sheets.Count > 1: workbook.Sheets(1).Delete()
+    """Crea un archivo Excel real multiplataforma usando openpyxl."""
+    wb = Workbook()
+    # Eliminar hoja default inicial
+    default_sheet = wb.active
+    wb.remove(default_sheet)
 
-    # --- Generación de pestañas condicionales ---
     if datos_im:
-        sheet = workbook.Sheets.Add(); sheet.Name = "IM"
-        sheet.Cells(1,1).Value = "ID Interruptor"; sheet.Cells(1,2).Value = "Nombre Interruptor"
-        for idx, item in enumerate(datos_im, start=2):
-            sheet.Cells(idx, 1).Value = item.id_equipo; sheet.Cells(idx, 2).Value = item.nombre_equipo
-    if datos_t2d:
-        sheet = workbook.Sheets.Add(); sheet.Name = "T2D"
-        sheet.Cells(1,1).Value = "ID Transformador"; sheet.Cells(1,2).Value = "Nombre Transformador"
-        for idx, item in enumerate(datos_t2d, start=2):
-            sheet.Cells(idx, 1).Value = item.id_equipo; sheet.Cells(idx, 2).Value = item.nombre_equipo
-    if datos_st:
-        sheet = workbook.Sheets.Add(); sheet.Name = "Secciones Tramos"
-        sheet.Cells(1,1).Value = "ID Sección Tramo"; sheet.Cells(1,2).Value = "Nombre Sección"
-        for idx, item in enumerate(datos_st, start=2):
-            sheet.Cells(idx, 1).Value = item.id_equipo; sheet.Cells(idx, 2).Value = item.nombre_equipo
+        ws = wb.create_sheet(title="IM")
+        ws.append(['ID Interruptor', 'Nombre Interruptor', 'Subestación', 'Propietario', 'Paño', 'Tensión Nominal [kV]', 'Corriente Nominal [A]'])
+        for item in datos_im:
+            dt = item.datos_tecnicos
+            ws.append([item.id_equipo, item.nombre_equipo, item.subestacion_nombre, item.propietario_nombre, item.pano_coordinado_nombre, dt.tension_nominal if dt else '', dt.corriente_nominal if dt else ''])
+            if dt:
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=6), dt.estados_certificacion.get('6018', ''))
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=7), dt.estados_certificacion.get('6019', ''))
 
-    excel.DisplayAlerts = False
+    if datos_t2d:
+        ws = wb.create_sheet(title="T2D")
+        ws.append(['ID Transformador', 'Nombre Transformador', 'Subestación', 'Propietario', 'Coordinado', 'Tensión nominal AT [kV]', 'Tensión nominal MT [kV]'])
+        for item in datos_t2d:
+            dt = item.datos_tecnicos
+            ws.append([item.id_equipo, item.nombre_equipo, item.subestacion_nombre, item.propietario_nombre, item.pano_coordinado_nombre, dt.tension_at if dt else '', dt.tension_mt if dt else ''])
+            if dt:
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=6), dt.estados_certificacion.get('132', ''))
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=7), dt.estados_certificacion.get('133', ''))
+
+    if datos_st:
+        ws = wb.create_sheet(title="Secciones Tramos")
+        ws.append(['ID Línea', 'Nombre Línea', 'ID Tramo', 'Nombre Tramo', 'ID Sección Tramo', 'Nombre Sección Tramo', 'Propietario', 'Extremo 1', 'Extremo 2', 'Tensión Nominal [kV]', 'Longitud conductor [km]'])
+        for item in datos_st:
+            dt = item.datos_tecnicos
+            ws.append([item.id_linea, item.nombre_linea, item.id_tramo, item.nombre_tramo, item.id_equipo, item.nombre_equipo, item.propietario_nombre, item.extremo1, item.extremo2, dt.tension_nominal if dt else '', dt.longitud_conductor if dt else ''])
+            if dt:
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=10), dt.estados_certificacion.get('5895', ''))
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=11), dt.estados_certificacion.get('1005', ''))
+
     filepath = os.path.abspath(os.path.join(os.getcwd(), "equipos_datos.xlsx"))
-    workbook.SaveAs(filepath)
-    workbook.Close()
-    excel.Quit()
+    wb.save(filepath)
     return filepath
 
 async def exportar_datos_async(ids_sub=None, ids_int=None, ids_t2d=None, ids_t3d=None, ids_st=None, ids_lin=None, ids_des=None, ids_tc=None, ids_to=None, ids_ug=None, por_secciones=False) -> str:
     async with aiohttp.ClientSession() as session:
         api_client = ApiClientFactory.create_client(session)
-        
         r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug = [], [], [], [], [], [], [], []
 
         if ids_sub:
@@ -571,6 +590,6 @@ async def exportar_datos_async(ids_sub=None, ids_int=None, ids_t2d=None, ids_t3d
         r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
         
         if not any([r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug]):
-            raise ValueError("No se encontraron registros válidos en Infotécnica.")
+            raise ValueError("No se encontraron registros válidos en la base de datos del Coordinador.")
 
         return crear_archivo_excel(r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug)
