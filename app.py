@@ -7,10 +7,9 @@ import os
 from infotecnica import exportar_datos_async
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Sistema Integral Psico-IA & Infotécnica", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Sistema Integral Infotécnica & Psico-IA", page_icon="⚡", layout="wide")
 
 # --- 2. CONFIGURACIÓN DE LA IA ---
-# Se configura de forma silenciosa. Si no existe la clave, avisará solo dentro del módulo de IA.
 if "GEMINI_API_KEY" in st.secrets:
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -22,61 +21,17 @@ else:
 
 # --- 3. CONTROL DE NAVEGACIÓN EN LA BARRA LATERAL ---
 st.sidebar.title(" Steinberg 🧭 Navegación")
+# Pusimos Infotécnica primero para que sea lo primero que se cargue al abrir
 opcion_modulo = st.sidebar.radio(
     "Selecciona el Módulo de trabajo:",
-    ["🧠 Generador de Informes (IA)", "⚡ Extractor Infotécnica (API)"]
+    ["⚡ Extractor Infotécnica (API)", "🧠 Generador de Informes (IA)"]
 )
 
-# ==============================================================================
-# MÓDULO 1: GENERADOR DE INFORMES (PSICOPEDAGOGÍA)
-# ==============================================================================
-if opcion_modulo == "🧠 Generador de Informes (IA)":
-    st.title("🧠 Generador Inteligente de Informes")
-    st.write("Potenciado por Gemini 3 Flash Preview")
-    st.markdown("---")
-
-    if model is None:
-        st.warning("⚠️ El módulo de IA no está configurado. Para activarlo, recuerda añadir 'GEMINI_API_KEY' en tus Secrets de Streamlit.")
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        st.header("📥 Datos del Alumno")
-        nombre = st.text_input("Nombre completo")
-        curso = st.text_input("Curso")
-        obs = st.text_area("Notas de la sesión", height=300, placeholder="Escribe tus notas aquí...")
-        boton_generar = st.button("✨ Generar Informe")
-
-    with col2:
-        st.header("📄 Informe Sugerido")
-        if boton_generar:
-            if model is None:
-                st.error("❌ No se puede generar el informe porque falta la clave API de Gemini.")
-            elif nombre and obs:
-                with st.spinner("Redactando informe..."):
-                    try:
-                        prompt = f"Actúa como psicopedagogo clínico. Redacta un informe para {nombre} del curso {curso}. Notas: {obs}. Estructura con Identificación, Análisis y Recomendaciones."
-                        response = model.generate_content(prompt)
-                        
-                        if response.text:
-                            st.success("¡Informe generado con éxito!")
-                            st.markdown(response.text)
-                            st.download_button(
-                                label="📥 Descargar TXT",
-                                data=response.text,
-                                file_name=f"Informe_{nombre}.txt",
-                                mime="text/plain"
-                            )
-                    except Exception as e:
-                        st.error(f"Error técnico: {e}")
-            else:
-                st.warning("⚠️ Rellena el nombre y las notas.")
-
 
 # ==============================================================================
-# MÓDULO 2: EXTRACTOR DE INFOTÉCNICA
+# MÓDULO 1: EXTRACTOR DE INFOTÉCNICA (AHORA POR DEFECTO)
 # ==============================================================================
-elif opcion_modulo == "⚡ Extractor Infotécnica (API)":
+if opcion_modulo == "⚡ Extractor Infotécnica (API)":
     st.title("⚡ Extractor de Fichas Técnicas del Coordinador Eléctrico")
     st.write("Consulta directa asíncrona a la plataforma Infotécnica")
     st.markdown("---")
@@ -125,5 +80,51 @@ elif opcion_modulo == "⚡ Extractor Infotécnica (API)":
         except Exception as e:
             st.error(f"❌ Error en el proceso de Infotécnica: {e}")
 
+
+# ==============================================================================
+# MÓDULO 2: GENERADOR DE INFORMES (PSICOPEDAGOGÍA)
+# ==============================================================================
+elif opcion_modulo == "🧠 Generador de Informes (IA)":
+    st.title("🧠 Generador Inteligente de Informes")
+    st.write("Potenciado por Gemini 3 Flash Preview")
+    st.markdown("---")
+
+    if model is None:
+        st.warning("⚠️ El módulo de IA no está configurado. Para activarlo, recuerda añadir 'GEMINI_API_KEY' en tus Secrets de Streamlit.")
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        st.header("📥 Datos del Alumno")
+        nombre = st.text_input("Nombre completo")
+        curso = st.text_input("Curso")
+        obs = st.text_area("Notas de la sesión", height=300, placeholder="Escribe tus notas aquí...")
+        boton_generar = st.button("✨ Generar Informe")
+
+    with col2:
+        st.header("📄 Informe Sugerido")
+        if boton_generar:
+            if model is None:
+                st.error("❌ No se puede generar el informe porque falta la clave API de Gemini.")
+            elif nombre and obs:
+                with st.spinner("Redactando informe..."):
+                    try:
+                        prompt = f"Actúa como psicopedagogo clínico. Redacta un informe para {nombre} del curso {curso}. Notas: {obs}. Estructura con Identificación, Análisis y Recomendaciones."
+                        response = model.generate_content(prompt)
+                        
+                        if response.text:
+                            st.success("¡Informe generado con éxito!")
+                            st.markdown(response.text)
+                            st.download_button(
+                                label="📥 Descargar TXT",
+                                data=response.text,
+                                file_name=f"Informe_{nombre}.txt",
+                                mime="text/plain"
+                            )
+                    except Exception as e:
+                        st.error(f"Error técnico: {e}")
+            else:
+                st.warning("⚠️ Rellena el nombre y las notas.")
+
 st.markdown("---")
-st.caption("© 2026 Centro Psicopedagógico & Plataforma Eléctrica")
+st.caption("© 2026 Plataforma Eléctrica & Centro Psicopedagógico")
