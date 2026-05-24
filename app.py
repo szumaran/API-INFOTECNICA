@@ -133,6 +133,7 @@ class ApiClient:
             return None
 
     async def buscar_nemotecnico_pano_por_extremo_tramo(self, nombre_extremo: str) -> Optional[str]:
+        if not nombre_extremo: return None
         if nombre_extremo.startswith("S/E "):
             nombre_extremo = nombre_extremo[4:]
         url = f"{BASE_URLS['panos']}?nombre__icontains={nombre_extremo}"
@@ -246,7 +247,21 @@ async def procesar_seccion_tramo(id_seccion_tramo: int, api_client: ApiClient) -
     if not datos_seccion_tramo: return None
     datos_tecnicos = await api_client.obtener_datos_tecnicos(id_seccion_tramo, 'secciones_tramos')
     tramo_info = await api_client.obtener_datos_tramo(datos_seccion_tramo.get('id_tramo', 0))
-    return SeccionTramo('Sección Tramo', id_seccion_tramo, datos_seccion_tramo.get('nombre', ''), None, datos_seccion_tramo.get('propietario_nombre', ''), None, datos_seccion_tramo.get('id_linea', 0), datos_seccion_tramo.get('linea_nombre', ''), tramo_info.get('id_tramo', 0), tramo_info.get('nombre_tramo', ''), tramo_info.get('extremo1', ''), tramo_info.get('extremo2', ''), datos_tecnicos)
+    return SeccionTramo(
+        tipo='Sección Tramo',
+        id_equipo=id_seccion_tramo,
+        nombre_equipo=datos_seccion_tramo.get('nombre', ''),
+        subestacion_nombre=None,
+        propietario_nombre=datos_seccion_tramo.get('propietario_nombre', ''),
+        pano_coordinado_nombre=None,
+        id_linea=datos_seccion_tramo.get('id_linea', 0),
+        nombre_linea=datos_seccion_tramo.get('linea_nombre', ''),
+        id_tramo=tramo_info.get('id_tramo', 0),
+        nombre_tramo=tramo_info.get('nombre_tramo', ''),
+        extremo1=tramo_info.get('extremo1', ''),
+        extremo2=tramo_info.get('extremo2', ''),
+        datos_tecnicos=datos_tecnicos
+    )
 
 def aplicar_color_openpyxl(cell, estado_certificacion: str):
     colores_hex = {'Validado': 'CCFFCC', 'Rechazado': 'F4B084', 'En Uso': 'FFE699'}
@@ -303,14 +318,16 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                 seccion = await procesar_seccion_tramo(t_id, api_client)
                 if seccion:
                     r_st.append(seccion)
+                    # CORRECCIÓN AQUÍ: Se evalúa el string de los extremos individuales directamente
                     for extremo in [seccion.extremo1, seccion.extremo2]:
-                        if extremo:
+                        if extremo and isinstance(extremo, str):
                             nemotecnico = await api_client.buscar_nemotecnico_pano_por_extremo_tramo(extremo)
                             if nemotecnico:
                                 int_data = await api_client.buscar_equipos_por_nemotecnico(nemotecnico, 'interruptores')
                                 for eq in int_data:
                                     r_int.append(await procesar_interruptor(eq['id'], api_client))
         else:
+            # EL MODO DIRECTO SE MANTIENE EXACTAMENTE IGUAL
             for eq_id in list_ids:
                 interruptor = await procesar_interruptor(eq_id, api_client)
                 if interruptor and interruptor.datos_tecnicos:
@@ -363,7 +380,6 @@ if boton_extraer:
         st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
     else:
         try:
-            # Extracción limpia de números con expresiones regulares
             list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
             
             if not list_ids:
@@ -374,12 +390,10 @@ if boton_extraer:
             st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para procesar.")
 
             with st.spinner("Llamando a las APIs del Coordinador Eléctrico..."):
-                # Abrimos un loop nuevo y limpio de forma explícita
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
                 try:
-                    # Ejecutamos el motor de extracción interno sin llamadas externas
                     excel_path = loop.run_until_complete(
                         ejecutar_extraccion_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo)
                     )
