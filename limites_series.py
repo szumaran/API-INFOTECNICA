@@ -75,12 +75,12 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
-        datos_agregados = False
         paños_ya_procesados = set()
 
         for eq_id in list_ids:
             pano_nombres_a_buscar = []
             subestacion = 'Desconocida'
+            datos_tramo_encontrados_en_id = False
 
             if es_modo_tramo:
                 # ==============================================================
@@ -133,89 +133,103 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             pano_nombres_a_buscar.append(limpiar_nombre_instalacion(p_nom))
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
-            if not pano_nombres_a_buscar: continue
 
             # ==============================================================
             # COSECHA VERTICAL DE ELEMENTOS EN SERIE
             # ==============================================================
-            for pano_nombre in pano_nombres_a_buscar:
-                if not pano_nombre or pano_nombre in paños_ya_procesados: continue
-                paños_ya_procesados.add(pano_nombre)
-                
-                endpoints_series = ['interruptores', 'desconectadores', 'transformadores_corriente', 'trampas_ondas']
-                sub_equipos_encontrados = []
-
-                for tipo in endpoints_series:
-                    url_search = f"{BASE_URLS[tipo]}/?search={pano_nombre}"
-                    datos_api = await hacer_solicitud(session, url_search)
+            if pano_nombres_a_buscar:
+                for pano_nombre in pano_nombres_a_buscar:
+                    if not pano_nombre or pano_nombre in paños_ya_procesados: continue
+                    paños_ya_procesados.add(pano_nombre)
                     
-                    if datos_api and isinstance(datos_api, list):
-                        # Reemplazamos el filtro estricto de texto por un límite físico seguro (máximo 10 fichas por endpoint)
-                        # Esto permite capturar equipos con sutiles variaciones de nombre sin generar ráfagas infinitas
-                        for item in datos_api[:10]:
-                            
-                            await asyncio.sleep(0.15)
-                            url_ficha = f"{BASE_URLS[tipo]}/{item['id']}/fichas-tecnicas/general/"
-                            ficha = await hacer_solicitud(session, url_ficha)
-                            
-                            if ficha and isinstance(ficha, dict):
-                                id_campo_corr = '6019' if tipo == 'interruptores' else '6216' if tipo == 'desconectadores' else '6177' if tipo == 'transformadores_corriente' else '469'
-                                txt_corr = ficha.get(id_campo_corr, {}).get('valor_texto', '')
-                                valor_amp = limpiar_valor_float(txt_corr)
-                                
-                                valor_ruptura = float('inf')
-                                if tipo == 'interruptores':
-                                    txt_rup = ficha.get('326', {}).get('valor_texto', '')
-                                    valor_ruptura = limpiar_valor_float(txt_rup)
+                    endpoints_series = ['interruptores', 'desconectadores', 'transformadores_corriente', 'trampas_ondas']
+                    sub_equipos_encontrados = []
 
-                                if valor_amp != float('inf') or valor_ruptura != float('inf'):
-                                    sub_equipos_encontrados.append({
-                                        'id': item['id'],
-                                        'nombre': item.get('nombre', f"{tipo}_{item['id']}"),
-                                        'tipo': tipo.replace("_", " ").upper(),
-                                        'corriente': valor_amp,
-                                        'ruptura': valor_ruptura
-                                    })
-
-                if sub_equipos_encontrados:
-                    datos_agregados = True
-                    
-                    limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
-                    equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
-                    limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
-
-                    inicio_bloque_row = ws.max_row + 1
-                    
-                    for eq in sub_equipos_encontrados:
-                        corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
-                        rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
+                    for tipo in endpoints_series:
+                        url_search = f"{BASE_URLS[tipo]}/?search={pano_nombre}"
+                        datos_api = await hacer_solicitud(session, url_search)
                         
-                        ws.append([
-                            eq_id, subestacion, pano_nombre, 
-                            eq['nombre'], eq['tipo'], corr_display, rup_display,
-                            "", ""
-                        ])
-                    
-                    fin_bloque_row = ws.max_row
-                    
-                    txt_lim_corr = f"{limitante_corriente['nombre']} ({limitante_corriente['corriente']} A)"
-                    txt_lim_rup = f"{limitante_ruptura['nombre']} ({limitante_ruptura['ruptura']} kA)" if limitante_ruptura else "N/A"
-                    
-                    ws.cell(row=inicio_bloque_row, column=8, value=txt_lim_corr)
-                    ws.cell(row=inicio_bloque_row, column=9, value=txt_lim_rup)
-                    
-                    block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
-                    
-                    for r in range(inicio_bloque_row, fin_bloque_row + 1):
-                        for c in range(1, 10):
-                            cell = ws.cell(row=r, column=c)
-                            if c in [8, 9]:
-                                cell.fill = block_fill
-                                cell.font = Font(name='Arial', size=10, bold=True, color='C00000')
-                            cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
+                        if datos_api and isinstance(datos_api, list):
+                            for item in datos_api[:10]:
+                                await asyncio.sleep(0.15)
+                                url_ficha = f"{BASE_URLS[tipo]}/{item['id']}/fichas-tecnicas/general/"
+                                ficha = await hacer_solicitud(session, url_ficha)
+                                
+                                if ficha and isinstance(ficha, dict):
+                                    id_campo_corr = '6019' if tipo == 'interruptores' else '6216' if tipo == 'desconectadores' else '6177' if tipo == 'transformadores_corriente' else '469'
+                                    txt_corr = ficha.get(id_campo_corr, {}).get('valor_texto', '')
+                                    valor_amp = limpiar_valor_float(txt_corr)
+                                    
+                                    valor_ruptura = float('inf')
+                                    if tipo == 'interruptores':
+                                        txt_rup = ficha.get('326', {}).get('valor_texto', '')
+                                        valor_ruptura = limpiar_valor_float(txt_rup)
 
-        if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica el modo de consulta.")
+                                    if valor_amp != float('inf') or valor_ruptura != float('inf'):
+                                        sub_equipos_encontrados.append({
+                                            'id': item['id'],
+                                            'nombre': item.get('nombre', f"{tipo}_{item['id']}"),
+                                            'tipo': tipo.replace("_", " ").upper(),
+                                            'corriente': valor_amp,
+                                            'ruptura': valor_ruptura
+                                        })
+
+                    if sub_equipos_encontrados:
+                        datos_tramo_encontrados_en_id = True
+                        
+                        limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
+                        equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
+                        limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
+
+                        inicio_bloque_row = ws.max_row + 1
+                        
+                        for eq in sub_equipos_encontrados:
+                            corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                            rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
+                            
+                            ws.append([
+                                eq_id, subestacion, pano_nombre, 
+                                eq['nombre'], eq['tipo'], corr_display, rup_display,
+                                "", ""
+                            ])
+                        
+                        fin_bloque_row = ws.max_row
+                        
+                        txt_lim_corr = f"{limitante_corriente['nombre']} ({limitante_corriente['corriente']} A)"
+                        txt_lim_rup = f"{limitante_ruptura['nombre']} ({limitante_ruptura['ruptura']} kA)" if limitante_ruptura else "N/A"
+                        
+                        ws.cell(row=inicio_bloque_row, column=8, value=txt_lim_corr)
+                        ws.cell(row=inicio_bloque_row, column=9, value=txt_lim_rup)
+                        
+                        block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
+                        
+                        for r in range(inicio_bloque_row, fin_bloque_row + 1):
+                            for c in range(1, 10):
+                                cell = ws.cell(row=r, column=c)
+                                if c in [8, 9]:
+                                    cell.fill = block_fill
+                                    cell.font = Font(name='Arial', size=10, bold=True, color='C00000')
+                                cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
+
+            # ==============================================================
+            # COMPORTAMIENTO FLEXIBLE SI EL TRAMO NO TIENE ELEMENTOS
+            # ==============================================================
+            if not datos_tramo_encontrados_en_id:
+                # Escribe una única fila informativa para que el ID aparezca reportado en el Excel
+                ws.append([
+                    eq_id, subestacion, "N/A", 
+                    "Sin equipos en serie identificados", "N/A", "N/A", "N/A",
+                    "Sin elementos en serie registrados", "N/A"
+                ])
+                ultima_fila = ws.max_row
+                # Aplicamos un estilo visual neutro para las celdas informativas
+                info_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+                info_font = Font(name='Arial', size=10, italic=True, color='595959')
+                for c in range(1, 10):
+                    cell = ws.cell(row=ultima_fila, column=c)
+                    cell.fill = info_fill
+                    cell.font = info_font
+                    cell.alignment = Alignment(vertical='center', horizontal='center')
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
