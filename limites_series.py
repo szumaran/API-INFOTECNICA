@@ -35,14 +35,6 @@ def limpiar_valor_float(texto_valor: Any) -> float:
     except Exception:
         return float('inf')
 
-def extraer_nemotecnico_puro(texto_pano: str) -> str:
-    if not texto_pano: return ""
-    # Quitar palabras comunes de relleno de las APIs
-    texto_limpio = re.sub(r'^(Paño\s+|Tap\s+|S/E\s+|de\s+)', '', texto_pano, flags=re.IGNORECASE).strip()
-    # Tomar el primer bloque de texto alfanumérico corto (ej: "JT", "02", "E3")
-    match = re.match(r'([A-Za-z0-9_-]+)', texto_limpio)
-    return match.group(1) if match else texto_limpio
-
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         
@@ -59,7 +51,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO HORIZONTAL
+                # MODO TRAMO (LÓGICA ORIGINAL QUE SÍ FUNCIONA)
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 async with session.get(url_seccion, headers=HEADERS) as resp:
@@ -92,9 +84,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             pano_nombres_a_buscar.append(panos_data[0].get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO HORIZONTAL CORREGIDO (BLINDADO)
+                # MODO DIRECTO (LÓGICA ORIGINAL RESTAURADA)
                 # ==============================================================
-                # 1. Probar como Interruptor
+                # 1. Probar si es Interruptor
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 async with session.get(url_eq, headers=HEADERS) as resp:
                     data_eq = await resp.json() if resp.status == 200 else None
@@ -103,7 +95,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     if data_eq.get('pano_nombre'):
                         pano_nombres_a_buscar.append(data_eq.get('pano_nombre'))
 
-                # 2. Probar como Trafo 2D
+                # 2. Probar si es Transformador 2D
                 if not pano_nombres_a_buscar:
                     url_trafo2d = f"{BASE_URLS['transformadores_2d']}/{eq_id}"
                     async with session.get(url_trafo2d, headers=HEADERS) as resp:
@@ -112,9 +104,12 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            pano_nombres_a_buscar.append(extraer_nemotecnico_puro(p_nom))
+                            # Volvemos a limpiar usando el patrón original de "Paño :" o "Paño "
+                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
+                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
+                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
 
-                # 3. Probar como Trafo 3D
+                # 3. Probar si es Transformador 3D
                 if not pano_nombres_a_buscar:
                     url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
                     async with session.get(url_trafo3d, headers=HEADERS) as resp:
@@ -123,12 +118,14 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            pano_nombres_a_buscar.append(extraer_nemotecnico_puro(p_nom))
+                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
+                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
+                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # EXTRACTOR EN SERIE GLOBAL DEL PAÑO
+            # EXTRACCIÓN DE OBJETOS EN SERIE (PROCESAMIENTO HORIZONTAL)
             # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
@@ -182,9 +179,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     })
 
         if not filas_reporte:
-            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado. Verifica que los IDs correspondan al modo seleccionado.")
+            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado. Verifica que correspondan al modo seleccionado.")
 
-        # Armado de columnas horizontales
+        # Generar las columnas del Excel de forma horizontal
         headers = ['ID Consultado', 'Subestación / Elemento', 'Paño Coordinado']
         for i in range(1, max_equipos_detectados + 1):
             headers.extend([
