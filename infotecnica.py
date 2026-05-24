@@ -1,3 +1,4 @@
+import streamlit as st
 import asyncio
 import aiohttp
 import logging
@@ -9,10 +10,11 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Dict, List, Optional
 
-# openpyxl para compatibilidad multiplataforma en la nube (Linux)
+# openpyxl para generar el Excel de forma nativa en la nube (Linux)
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
+# --- CONFIGURACIÓN INICIAL ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 try:
@@ -43,6 +45,7 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
+# --- DATACLASSES ---
 @dataclass
 class EquipoDatosTecnicos:
     estados_certificacion: Dict[str, str]
@@ -289,16 +292,13 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
     wb.save(filepath)
     return filepath
 
-# ==============================================================================
-# FUNCIÓN MATRIZ ASÍNCRONA - CONFIGURADA AL 100% PARA LOS ARGUMENTOS NUEVOS
-# ==============================================================================
-async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
+# --- NÚCLEO DE EXTRACCIÓN SÍNCRONA INTERNA ---
+async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         api_client = ApiClientFactory.create_client(session)
         r_int, r_t2d, r_st = [], [], []
 
         if es_modo_tramo:
-            logging.info(f"[PROCESO] Ejecutando Modo TRAMO para los IDs: {list_ids}")
             for t_id in list_ids:
                 seccion = await procesar_seccion_tramo(t_id, api_client)
                 if seccion:
@@ -311,15 +311,12 @@ async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
                                 for eq in int_data:
                                     r_int.append(await procesar_interruptor(eq['id'], api_client))
         else:
-            logging.info(f"[PROCESO] Ejecutando Modo DIRECTO para los IDs: {list_ids}")
             for eq_id in list_ids:
-                # 1. Intentamos procesar como interruptor
                 interruptor = await procesar_interruptor(eq_id, api_client)
                 if interruptor and interruptor.datos_tecnicos:
                     r_int.append(interruptor)
                     continue
                 
-                # 2. Intentamos procesar como transformador 2D
                 transformador = await procesar_transformador(eq_id, api_client)
                 if transformador and transformador.datos_tecnicos:
                     r_t2d.append(transformador)
@@ -330,6 +327,80 @@ async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
         r_st = [x for x in r_st if x]
         
         if not any([r_int, r_t2d, r_st]):
-            raise ValueError("No se encontraron registros ni parámetros técnicos válidos para los IDs provistos en las APIs.")
+            raise ValueError("No se encontraron registros válidos para esos IDs en este modo de consulta.")
 
         return crear_archivo_excel(r_int, r_t2d, r_st)
+
+
+# ==============================================================================
+# INTERFAZ GRÁFICA DE STREAMLIT (ENTORNO UNIFICADO)
+# ==============================================================================
+st.set_page_config(page_title="Extractor Infotécnica - Disgilent", page_icon="⚡", layout="wide")
+
+st.title("⚡ Extractor Masivo Infotécnica (Input desde Disgilent)")
+st.write("Pega tu lista de IDs directamente para descargar los parámetros desde el Coordinador Eléctrico")
+st.markdown("---")
+
+input_ids = st.text_area(
+    "Pega aquí la lista de IDs (Puedes pegarlos separados por comas, espacios o uno por fila copiado de Excel/Disgilent):",
+    placeholder="Ejemplo:\n3789\n4521\n8912",
+    height=200
+)
+
+tipo_busqueda = st.radio(
+    "Selecciona cómo deseas procesar esta lista de IDs:",
+    [
+        "🔍 Modo Directo: Los IDs corresponden directamente a los Equipos (Interruptores, Transformadores, etc.)",
+        "🛤️ Modo Tramo: Los IDs corresponden a Tramos (Buscar todos los equipos asociados a estos tramos)"
+    ]
+)
+
+st.markdown("---")
+boton_extraer = st.button("🚀 Iniciar Extracción Masiva Asíncrona")
+
+if boton_extraer:
+    if not input_ids.strip():
+        st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
+    else:
+        try:
+            # Extracción limpia de números con expresiones regulares
+            list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
+            
+            if not list_ids:
+                raise ValueError("No se encontraron números válidos en el cuadro de texto.")
+                
+            es_modo_tramo = "Modo Tramo" in tipo_busqueda
+
+            st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para procesar.")
+
+            with st.spinner("Llamando a las APIs del Coordinador Eléctrico..."):
+                # Abrimos un loop nuevo y limpio de forma explícita
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                try:
+                    # Ejecutamos el motor de extracción interno sin llamadas externas
+                    excel_path = loop.run_until_complete(
+                        ejecutar_extraccion_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo)
+                    )
+                finally:
+                    loop.close()
+                
+            if os.path.exists(excel_path):
+                st.success("🎉 ¡Extracción masiva finalizada con éxito!")
+                
+                with open(excel_path, "rb") as file:
+                    st.download_button(
+                        label="📥 Descargar Parámetros en Excel (.xlsx)",
+                        data=file,
+                        file_name="parametros_infotecnica.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    
+        except ValueError as ve:
+            st.error(f"❌ Error de entrada: {ve}")
+        except Exception as e:
+            st.error(f"❌ Error en el proceso de Infotécnica: {e}")
+
+st.markdown("---")
+st.caption("© 2026 Plataforma Eléctrica - Conector de Parámetros Masivos")
