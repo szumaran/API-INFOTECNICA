@@ -1,6 +1,5 @@
 import asyncio
 import aiohttp
-import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
@@ -36,7 +35,7 @@ def limpiar_valor_float(texto_valor: Any) -> float:
         return float('inf')
 
 async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[Any]:
-    timeout = aiohttp.ClientTimeout(total=8.0)
+    timeout = aiohttp.ClientTimeout(total=10.0)
     try:
         async with session.get(url, headers=HEADERS, timeout=timeout) as response:
             if response.status == 200:
@@ -85,7 +84,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Extracción directa de límites del Conductor
+                # MODO TRAMO: Límites del conductor indexando IDs de campo fijos
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -94,19 +93,16 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
                     nombre_tramo = data_seccion.get('nombre', 'Tramo')
                     
-                    # Consumir ficha técnica general del tramo por ID numérico de campo
                     url_ficha_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/fichas-tecnicas/general/"
                     ficha_tramo = await hacer_solicitud(session, url_ficha_tramo)
                     
                     if ficha_tramo and isinstance(ficha_tramo, dict):
-                        # Intentar capturar corriente nominal desde los IDs de campos típicos para tramos
                         txt_corr = ""
                         for id_campo in ['1042', '1043', '1044', '6019', '6216']:
                             if id_campo in ficha_tramo:
                                 txt_corr = ficha_tramo[id_campo].get('valor_texto', '')
                                 if txt_corr: break
                         
-                        # Intentar capturar capacidad de ruptura (Cortocircuito) desde el ID 326
                         txt_rup = ""
                         if '326' in ficha_tramo:
                             txt_rup = ficha_tramo['326'].get('valor_texto', '')
@@ -123,7 +119,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                 'ruptura': valor_rup_tramo
                             })
 
-                    # Continuar con el mapeo de los extremos para traer interruptores y desconectadores
                     for llave_txt in ['linea_nombre', 'nombre', 'extremo1_descripcion', 'extremo2_descripcion']:
                         val_txt = data_seccion.get(llave_txt, '')
                         if val_txt:
@@ -166,7 +161,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
 
-            # Cosechar elementos de los extremos
             if pano_nombres_a_buscar:
                 for pano_nombre in pano_nombres_a_buscar:
                     if not pano_nombre or pano_nombre in paños_ya_procesados: continue
@@ -203,7 +197,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             'ruptura': valor_ruptura
                                         })
 
-            # Generación consolidada del reporte en Excel
             if sub_equipos_encontrados:
                 datos_tramo_encontrados_en_id = True
                 
@@ -214,7 +207,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 inicio_bloque_row = ws.max_row + 1
                 
                 for eq in sub_equipos_encontrados:
-                    corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                    corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
                     rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                     
                     ws.append([
