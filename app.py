@@ -3,74 +3,138 @@ import asyncio
 import os
 import re
 
-# Importamos los dos motores aislados
 from infotecnica import ejecutar_extraccion_motor
 from limites_series import buscar_limites_series_motor
 
-st.set_page_config(page_title="Extractor Infotécnica - Disgilent", page_icon="⚡", layout="wide")
-
-st.title("⚡ Extractor Masivo Infotécnica (Input desde Disgilent)")
-st.write("Pega tu lista de IDs directamente para descargar los parámetros desde el Coordinador Eléctrico")
-st.markdown("---")
-
-input_ids = st.text_area(
-    "Pega aquí la lista de IDs (Puedes pegarlos separados por comas, espacios o uno por fila copiado de Excel/Disgilent):",
-    placeholder="Ejemplo:\n3789\n4521\n8912",
-    height=200
-)
-
-tipo_busqueda = st.radio(
-    "Selecciona cómo deseas procesar esta lista de IDs:",
+# --- SELECTOR GENERAL EN BARRA LATERAL ---
+st.sidebar.title("🧭 Panel Eléctrico")
+aplicacion_activa = st.sidebar.radio(
+    "Selecciona la herramienta que deseas utilizar:",
     [
-        "🔍 Modo Directo: Los IDs corresponden directamente a los Equipos (Interruptores, Transformadores, etc.)",
-        "🛤️ Modo Tramo: Los IDs corresponden a Tramos (Buscar todos los equipos asociados a estos tramos)",
-        "⛓️ Modo Objetos en Serie: Evaluar el paño completo del elemento y calcular el Límite de Corriente global (Eslabón más débil)"
+        "📊 1. Extractor Masivo Infotécnica",
+        "⛓️ 2. Extractor de Elementos en Serie"
     ]
 )
 
 st.markdown("---")
-boton_extraer = st.button("🚀 Iniciar Extracción Masiva Asíncrona")
 
-if boton_extraer:
-    if not input_ids.strip():
-        st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
-    else:
-        try:
-            list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
-            if not list_ids:
-                raise ValueError("No se encontraron números válidos en el cuadro de texto.")
+# ==============================================================================
+# ENTORNO 1: EXTRACTOR MASIVO INFOTÉCNICA
+# ==============================================================================
+if aplicacion_activa == "📊 1. Extractor Masivo Infotécnica":
+    st.title("📊 Extractor Masivo Infotécnica (Input desde Disgilent)")
+    st.write("Descarga los parámetros generales organizados en pestañas independientes")
+    
+    input_ids = st.text_area(
+        "Pega aquí la lista de IDs (Comas, espacios o saltos de línea de Excel/Disgilent):",
+        placeholder="Ejemplo:\n3789\n4521\n8912",
+        height=200,
+        key="txt_extractor_general"
+    )
 
-            st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para procesar.")
+    tipo_busqueda = st.radio(
+        "Selecciona cómo deseas procesar esta lista de IDs:",
+        [
+            "🔍 Modo Directo: Los IDs corresponden directamente a los Equipos (Interruptores, Transformadores, etc.)",
+            "🛤️ Modo Tramo: Los IDs corresponden a Tramos (Buscar todos los equipos asociados a estos tramos)"
+        ],
+        key="radio_extractor_general"
+    )
 
-            with st.spinner("Llamando a las APIs del Coordinador Eléctrico..."):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+    st.markdown("---")
+    boton_extraer = st.button("🚀 Iniciar Extracción Masiva Asíncrona", key="btn_extractor_general")
+
+    if boton_extraer:
+        if not input_ids.strip():
+            st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
+        else:
+            try:
+                list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
+                if not list_ids: raise ValueError("No se encontraron números válidos.")
                 
-                try:
-                    # Enrutamiento modular e independiente
-                    if "Modo Objetos en Serie" in tipo_busqueda:
-                        excel_path = loop.run_until_complete(buscar_limites_series_motor(list_ids=list_ids))
-                    else:
-                        es_modo_tramo = "Modo Tramo" in tipo_busqueda
-                        excel_path = loop.run_until_complete(ejecutar_extraccion_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo))
-                finally:
-                    loop.close()
-                
-            if os.path.exists(excel_path):
-                st.success("🎉 ¡Extracción masiva finalizada con éxito!")
-                
-                with open(excel_path, "rb") as file:
-                    st.download_button(
-                        label="📥 Descargar Parámetros en Excel (.xlsx)",
-                        data=file,
-                        file_name="parametros_infotecnica.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                es_modo_tramo = "Modo Tramo" in tipo_busqueda
+
+                st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para el Extractor Masivo.")
+                with st.spinner("Llamando a las APIs de Infotécnica..."):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        excel_path = loop.run_until_complete(
+                            ejecutar_extraccion_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo)
+                        )
+                    finally:
+                        loop.close()
                     
-        except ValueError as ve:
-            st.error(f"❌ Error de entrada: {ve}")
-        except Exception as e:
-            st.error(f"❌ Error en el proceso de Infotécnica: {e}")
+                if os.path.exists(excel_path):
+                    st.success("🎉 ¡Extracción masiva finalizada con éxito!")
+                    with open(excel_path, "rb") as file:
+                        st.download_button(
+                            label="📥 Descargar Parámetros en Excel (.xlsx)",
+                            data=file,
+                            file_name="parametros_infotecnica.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+
+# ==============================================================================
+# ENTORNO 2: EXTRACTOR DE ELEMENTOS EN SERIE (HOMÓLOGO)
+# ==============================================================================
+elif aplicacion_activa == "⛓️ 2. Extractor de Elementos en Serie":
+    st.title("⛓️ Extractor de Elementos en Serie (Eslabón Más Débil)")
+    st.write("Calcula el límite térmico global analizando los objetos en serie del paño")
+    
+    input_ids_series = st.text_area(
+        "Pega aquí la lista de IDs (Comas, espacios o saltos de línea de Excel/Disgilent):",
+        placeholder="Ejemplo:\n3789\n4521\n8912",
+        height=200,
+        key="txt_extractor_series"
+    )
+
+    tipo_busqueda_series = st.radio(
+        "Selecciona cómo deseas procesar esta lista de IDs:",
+        [
+            "🔍 Modo Directo: Los IDs corresponden directamente a los Equipos (Interruptores, Transformadores 2D/3D)",
+            "🛤️ Modo Tramo: Los IDs corresponden a Tramos (Buscar la serie de los paños extremos de las Líneas)"
+        ],
+        key="radio_extractor_series"
+    )
+
+    st.markdown("---")
+    boton_extraer_series = st.button("🚀 Iniciar Extracción de Objetos en Serie", key="btn_extractor_series")
+
+    if boton_extraer_series:
+        if not input_ids_series.strip():
+            st.warning("⚠️ Por favor, pega al menos un ID para iniciar el análisis.")
+        else:
+            try:
+                list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids_series)]
+                if not list_ids: raise ValueError("No se encontraron números válidos.")
+                
+                es_modo_tramo = "Modo Tramo" in tipo_busqueda_series
+
+                st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para la búsqueda en serie.")
+                with st.spinner("Determinando modo y analizando elementos en serie del paño..."):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        excel_path = loop.run_until_complete(
+                            buscar_limites_series_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo)
+                        )
+                    finally:
+                        loop.close()
+                    
+                if os.path.exists(excel_path):
+                    st.success("🎉 ¡Análisis de elementos en serie finalizado con éxito!")
+                    with open(excel_path, "rb") as file:
+                        st.download_button(
+                            label="📥 Descargar Reporte de Corriente Mínima (.xlsx)",
+                            data=file,
+                            file_name="limites_corriente_series.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
 
 st.markdown("---")
-st.caption("© 2026 Plataforma Eléctrica - Conector de Parámetros Masivos")
+st.caption("© 2026 Plataforma Eléctrica - Módulos Modulares Homólogos")
