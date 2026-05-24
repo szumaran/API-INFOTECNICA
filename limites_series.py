@@ -44,6 +44,13 @@ async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[
         pass
     return None
 
+def limpiar_extremos(texto: str) -> str:
+    if texto is None: return ''
+    patrones = [r'^Paño\s*:\s*', r'^Tap\s*:\s*']
+    for patron in patrones:
+        texto = re.sub(patron, '', texto, flags=re.IGNORECASE)
+    return texto.strip()
+
 async def buscar_nemotecnico_pano_por_extremo_tramo(session: aiohttp.ClientSession, nombre_extremo: str) -> Optional[str]:
     if not nombre_extremo: return None
     if nombre_extremo.startswith("S/E "):
@@ -87,7 +94,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Motor Seguro Original
+                # MODO TRAMO VERTICTAL CORREGIDO Y VALIDADO (HOMÓLOGO A TU EXRACTOR 1)
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -98,17 +105,22 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     data_tramo = await hacer_solicitud(session, url_tramo)
                     
                     if data_tramo:
-                        extremo1 = data_tramo.get('extremo1_descripcion', '')
-                        extremo2 = data_tramo.get('extremo2_descripcion', '')
-                        for ext in [extremo1, extremo2]:
+                        # Rescatamos descripciones nativas de los extremos
+                        ext1_desc = data_tramo.get('extremo1_descripcion', '')
+                        ext2_desc = data_tramo.get('extremo2_descripcion', '')
+                        
+                        # Limpieza usando el método original exacto
+                        ext1_limpio = limpiar_extremos(ext1_desc)
+                        ext2_limpio = limpiar_extremos(ext2_desc)
+                        
+                        for ext in [ext1_limpio, ext2_limpio]:
                             if ext:
-                                ext_limpio = re.sub(r'^(Paño\s*:\s*|Tap\s*:\s*|S/E\s*)', '', ext, flags=re.IGNORECASE).strip()
-                                nemotecnico = await buscar_nemotecnico_pano_por_extremo_tramo(session, ext_limpio)
+                                nemotecnico = await buscar_nemotecnico_pano_por_extremo_tramo(session, ext)
                                 if nemotecnico:
                                     pano_nombres_a_buscar.append(nemotecnico)
             else:
                 # ==============================================================
-                # MODO DIRECTO: Motor Seguro Original
+                # MODO DIRECTO VERTICAL VALIDADO (HOMÓLOGO A TU EXTRACTOR 1)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -124,7 +136,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
+                            p_limpio = limpiar_extremos(p_nom)
                             match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
                             pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
 
@@ -135,14 +147,14 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
+                            p_limpio = limpiar_extremos(p_nom)
                             match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
                             pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # COSECHA VERTICAL ESTABLE
+            # COSECHA EN SERIE ESTABLE
             # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
@@ -216,7 +228,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
         if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica que el modo corresponda a tus IDs.")
+            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica que el modo (Directo o Tramo) corresponda con los tipos de ID ingresados.")
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
