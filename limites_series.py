@@ -36,7 +36,8 @@ def limpiar_valor_float(texto_valor: Any) -> float:
         return float('inf')
 
 async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[Any]:
-    timeout = aiohttp.ClientTimeout(total=8.0)  # Subimos a 8 segundos para dar margen en horas pico
+    # Timeout estricto de 6 segundos por reloj. Si la API se congela, el script salta y no se queda en bucle jamás.
+    timeout = aiohttp.ClientTimeout(total=6.0)
     try:
         async with session.get(url, headers=HEADERS, timeout=timeout) as response:
             if response.status == 200:
@@ -47,14 +48,14 @@ async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[
 
 def limpiar_nombre_instalacion(texto: str) -> str:
     if not texto: return ""
-    # Quitar rellenos comunes de las APIs de líneas/tramos
-    texto_limpio = re.sub(r'^(Paño\s*:\s*|Tap\s*:\s*|Paño\s+|S/E\s+)', '', texto, flags=re.IGNORECASE)
-    if " - " in texto_limpio:
-        texto_limpio = texto_limpio.split(" - ")[0]
-    return texto_limpio.strip()
+    # Corte tradicional por string, 100% seguro contra Catastrophic Backtracking
+    if " - " in texto:
+        texto = texto.split(" - ")[0]
+    return texto.strip()
 
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
-    connector = aiohttp.TCPConnector(limit_per_host=5)
+    # Semáforo de red: Máximo 2 conexiones simultáneas al host para evitar bloqueos por Rate Limit
+    connector = aiohttp.TCPConnector(limit_per_host=2)
     async with aiohttp.ClientSession(connector=connector) as session:
         
         wb = Workbook()
@@ -85,7 +86,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Búsqueda corregida por endpoint estricto ?search=
+                # MODO TRAMO AUDITADO (SECCIONES TRAMOS DE LA FOTO 3)
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -93,23 +94,30 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 if data_seccion and isinstance(data_seccion, dict):
                     subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
                     
-                    # Usamos los textos de los campos para cruzar con la API de paños
-                    for llave_txt in ['extremo1_descripcion', 'extremo2_descripcion', 'nombre', 'linea_nombre']:
-                        val_txt = data_seccion.get(llave_txt, '')
-                        if val_txt:
-                            txt_limpio = limpiar_nombre_instalacion(str(val_txt))
-                            if txt_limpio and len(txt_limpio) > 2:
-                                # CORRECCIÓN CRÍTICA: Cambiado a ?search= para evitar que traiga todo Chile
-                                url_p = f"{BASE_URLS['panos']}/?search={txt_limpio}"
-                                panos_res = await hacer_solicitud(session, url_p)
-                                if panos_res and isinstance(panos_res, list):
-                                    for p in panos_res:
-                                        if p.get('nemotecnico'):
-                                            # Validamos que el paño pertenezca de alguna forma a la zona de interés
-                                            pano_nombres_a_buscar.append(p.get('nemotecnico'))
+                    # Intento 1: Consultar paños vinculados directamente a la sección por ID de la API
+                    url_p_directo = f"{BASE_URLS['panos']}/?id_seccion_tramo={eq_id}"
+                    res_p_directo = await hacer_solicitud(session, url_p_directo)
+                    if res_p_directo and isinstance(res_p_directo, list):
+                        for p in res_p_directo:
+                            if p.get('nemotecnico'):
+                                pano_nombres_a_buscar.append(p.get('nemotecnico'))
+                    
+                    # Intento 2 (Fallback): Si la relación no está indexada por ID, buscamos por el texto limpio del nombre
+                    if not pano_nombres_a_buscar:
+                        for llave_txt in ['linea_nombre', 'nombre', 'extremo1_descripcion', 'extremo2_descripcion']:
+                            val_txt = data_seccion.get(llave_txt, '')
+                            if val_txt:
+                                txt_limpio = limpiar_nombre_instalacion(str(val_txt))
+                                if txt_limpio and len(txt_limpio) > 2:
+                                    url_p_search = f"{BASE_URLS['panos']}/?search={txt_limpio}"
+                                    panos_res = await hacer_solicitud(session, url_p_search)
+                                    if panos_res and isinstance(panos_res, list):
+                                        for p in panos_res:
+                                            if p.get('nemotecnico'):
+                                                pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO
+                # MODO DIRECTO AUDITADO (INTERRUPTORES / TRAFOS)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -140,7 +148,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # BÚSQUEDA VERTICAL DE ELEMENTOS EN SERIE
+            # COSECHA VERTICAL DE PARÁMETROS EN SERIE CON DELAY HUMANO
             # ==============================================================
             for pano_nombre in pano_nombres_a_buscar:
                 if not pano_nombre or pano_nombre in paños_ya_procesados: continue
@@ -155,7 +163,8 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     
                     if datos_api and isinstance(datos_api, list):
                         for item in datos_api:
-                            await asyncio.sleep(0.05) # Rate limiting preventivo suave
+                            # Pausa obligatoria de 150ms para que el servidor del Coordinador no nos bloquee por ráfaga
+                            await asyncio.sleep(0.15)
                             
                             url_ficha = f"{BASE_URLS[tipo]}/{item['id']}/fichas-tecnicas/general/"
                             ficha = await hacer_solicitud(session, url_ficha)
@@ -217,7 +226,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
         if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica el modo de consulta.")
+            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica el modo seleccionado.")
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
