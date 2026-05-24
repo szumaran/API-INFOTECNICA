@@ -20,7 +20,7 @@ input_ids = st.text_area(
     height=200
 )
 
-# 2. Selector de la forma de búsqueda (Ambas habilitadas por listas de IDs)
+# 2. Selector de la forma de búsqueda
 tipo_busqueda = st.radio(
     "Selecciona cómo deseas procesar esta lista de IDs:",
     [
@@ -37,25 +37,33 @@ if boton_extraer:
         st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
     else:
         try:
-            # Limpieza ultra flexible de IDs usando expresiones regulares.
-            # Esto detecta cualquier número entero sin importar si están separados por comas, espacios o saltos de línea (Excel)
+            # Limpieza de IDs usando expresiones regulares
             list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
             
             if not list_ids:
                 raise ValueError("No se encontraron números válidos en el cuadro de texto.")
                 
-            # Determinar el flag 'por_secciones' según la opción seleccionada del radio button
             es_modo_tramo = "Modo Tramo" in tipo_busqueda
 
             st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para procesar en el backend.")
 
             with st.spinner("Llamando a las APIs del Coordinador Eléctrico de forma asíncrona..."):
-                loop = asyncio.get_event_loop()
+                # ==============================================================
+                # SOLUCIÓN AL ERROR DE EVENT LOOP EN STREAMLIT
+                # ==============================================================
+                # Creamos un nuevo bucle de eventos exclusivo para este hilo de Streamlit
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 
-                # Pasamos la lista limpia de IDs al backend original
-                excel_path = loop.run_until_complete(
-                    exportar_datos_async(ids_st=list_ids, por_secciones=es_modo_tramo)
-                )
+                try:
+                    # Ejecutamos el extractor asíncronamente en este nuevo loop
+                    excel_path = loop.run_until_complete(
+                        exportar_datos_async(ids_st=list_ids, por_secciones=es_modo_tramo)
+                    )
+                finally:
+                    # Cerramos el loop al terminar para liberar recursos de memoria del servidor
+                    loop.close()
+                # ==============================================================
                 
             if os.path.exists(excel_path):
                 st.success("🎉 ¡Extracción masiva finalizada con éxito!")
