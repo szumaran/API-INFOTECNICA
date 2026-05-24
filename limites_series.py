@@ -12,7 +12,6 @@ BASE_URLS = {
     'transformadores_2d': 'https://api-infotecnica.coordinador.cl/v1/transformadores-2d',
     'transformadores_3d': 'https://api-infotecnica.coordinador.cl/v1/transformadores-3d',
     'secciones_tramos': 'https://api-infotecnica.coordinador.cl/v1/secciones-tramos',
-    'lineas': 'https://api-infotecnica.coordinador.cl/v1/lineas',
     'tramos': 'https://api-infotecnica.coordinador.cl/v1/tramos',
     'desconectadores': 'https://api-infotecnica.coordinador.cl/v1/desconectadores',
     'transformadores_corriente': 'https://api-infotecnica.coordinador.cl/v1/transformadores-corrientes',
@@ -95,31 +94,20 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # ENFOQUE 100% LÍNEA (CONSOLIDACIÓN DE TRAMOS Y PAÑOS)
+                # MODO TRAMO: BÚSQUEDA PURA EN SECCIONES DE TRAMOS (CÓDIGO INTACTO)
                 # ==============================================================
-                url_linea = f"{BASE_URLS['lineas']}/{eq_id}/"
-                data_linea = await hacer_solicitud(session, url_linea)
+                url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
+                data_seccion = await hacer_solicitud(session, url_seccion)
                 
-                lista_tramos = []
-                if data_linea and isinstance(data_linea, dict):
-                    subestacion = data_linea.get('nombre') or 'Línea de Transmisión'
+                if data_seccion and data_seccion.get('id_tramo'):
+                    subestacion = data_seccion.get('linea_nombre') or 'Línea de Transmisión'
                     
-                    # Intento A: Buscar tramos por propiedad 'linea' en la API
-                    url_tramos_id = f"{BASE_URLS['tramos']}/?linea={eq_id}"
-                    lista_tramos = await hacer_solicitud(session, url_tramos_id)
+                    url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
+                    data_tramo = await hacer_solicitud(session, url_tramo)
                     
-                    # Intento B (Respaldo por Texto): Si no trajo nada por ID, buscamos por el nombre de la línea
-                    if not lista_tramos and data_linea.get('nombre'):
-                        # Tomamos la primera parte del nombre antes del guión para ampliar la coincidencia
-                        nombre_busqueda = data_linea['nombre'].split(" - ")[0].strip()
-                        url_tramos_search = f"{BASE_URLS['tramos']}/?search={nombre_busqueda}"
-                        lista_tramos = await hacer_solicitud(session, url_tramos_search)
-                
-                # Si logramos levantar tramos, extraemos los paños de sus extremos
-                if lista_tramos and isinstance(lista_tramos, list):
-                    for tramo in lista_tramos:
-                        ext1_desc = tramo.get('extremo1_descripcion', '')
-                        ext2_desc = tramo.get('extremo2_descripcion', '')
+                    if data_tramo:
+                        ext1_desc = data_tramo.get('extremo1_descripcion', '')
+                        ext2_desc = data_tramo.get('extremo2_descripcion', '')
                         
                         ext1_limpio = limpiar_extremos(ext1_desc)
                         ext2_limpio = limpiar_extremos(ext2_desc)
@@ -131,7 +119,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                     pano_nombres_a_buscar.append(nemotecnico)
             else:
                 # ==============================================================
-                # MODO DIRECTO (REQUETE-VALIDADO)
+                # MODO DIRECTO (YA OPERATIVO)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -162,12 +150,11 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
                             pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
 
-            # Evitamos duplicar paños si varios tramos apuntan al mismo extremo
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # PROCESAMIENTO VERTICAL DE LOS ELEMENTOS EN SERIE
+            # BÚSQUEDA VERTICAL DE ELEMENTOS EN SERIE
             # ==============================================================
             for pano_nombre in pano_nombres_a_buscar:
                 if not pano_nombre: continue
@@ -177,7 +164,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
                 for tipo in endpoints_series:
                     url_search = f"{BASE_URLS[tipo]}/?search={pano_nombre}"
-                    datos_api = await make_json_request := await hacer_solicitud(session, url_search)
+                    datos_api = await hacer_solicitud(session, url_search)
                     
                     if datos_api and isinstance(datos_api, list):
                         for item in datos_api:
@@ -241,7 +228,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
         if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie. Verifica si el ID corresponde a una línea válida en la API.")
+            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica que el modo corresponda a tus IDs.")
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
