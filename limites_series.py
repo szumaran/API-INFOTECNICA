@@ -35,6 +35,14 @@ def limpiar_valor_float(texto_valor: Any) -> float:
     except Exception:
         return float('inf')
 
+def extraer_nemotecnico_puro(texto_pano: str) -> str:
+    if not texto_pano: return ""
+    # Quitar palabras comunes de relleno de las APIs
+    texto_limpio = re.sub(r'^(Paño\s+|Tap\s+|S/E\s+|de\s+)', '', texto_pano, flags=re.IGNORECASE).strip()
+    # Tomar el primer bloque de texto alfanumérico corto (ej: "JT", "02", "E3")
+    match = re.match(r'([A-Za-z0-9_-]+)', texto_limpio)
+    return match.group(1) if match else texto_limpio
+
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         
@@ -42,7 +50,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         ws = wb.active
         ws.title = "Análisis de Elementos en Serie"
         
-        # Guardaremos los resultados procesados en memoria antes de escribir para saber el máximo de columnas dinámicas
         filas_reporte = []
         max_equipos_detectados = 0
 
@@ -51,6 +58,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             subestacion = 'Desconocida'
 
             if es_modo_tramo:
+                # ==============================================================
+                # MODO TRAMO HORIZONTAL
+                # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 async with session.get(url_seccion, headers=HEADERS) as resp:
                     data_seccion = await resp.json() if resp.status == 200 else None
@@ -81,6 +91,10 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                         if panos_data[0].get('nemotecnico'):
                                             pano_nombres_a_buscar.append(panos_data[0].get('nemotecnico'))
             else:
+                # ==============================================================
+                # MODO DIRECTO HORIZONTAL CORREGIDO (BLINDADO)
+                # ==============================================================
+                # 1. Probar como Interruptor
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 async with session.get(url_eq, headers=HEADERS) as resp:
                     data_eq = await resp.json() if resp.status == 200 else None
@@ -89,6 +103,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     if data_eq.get('pano_nombre'):
                         pano_nombres_a_buscar.append(data_eq.get('pano_nombre'))
 
+                # 2. Probar como Trafo 2D
                 if not pano_nombres_a_buscar:
                     url_trafo2d = f"{BASE_URLS['transformadores_2d']}/{eq_id}"
                     async with session.get(url_trafo2d, headers=HEADERS) as resp:
@@ -97,9 +112,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
+                            pano_nombres_a_buscar.append(extraer_nemotecnico_puro(p_nom))
 
+                # 3. Probar como Trafo 3D
                 if not pano_nombres_a_buscar:
                     url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
                     async with session.get(url_trafo3d, headers=HEADERS) as resp:
@@ -108,11 +123,13 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
+                            pano_nombres_a_buscar.append(extraer_nemotecnico_puro(p_nom))
 
             if not pano_nombres_a_buscar: continue
 
+            # ==============================================================
+            # EXTRACTOR EN SERIE GLOBAL DEL PAÑO
+            # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
                 
@@ -151,7 +168,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 if sub_equipos_encontrados:
                     max_equipos_detectados = max(max_equipos_detectados, len(sub_equipos_encontrados))
                     
-                    # Calcular ganadores / limitantes
                     limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
                     equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
                     limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
@@ -166,14 +182,10 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     })
 
         if not filas_reporte:
-            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado.")
+            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado. Verifica que los IDs correspondan al modo seleccionado.")
 
-        # ==============================================================
-        # CONSTRUCCIÓN DINÁMICA DE ENCABEZADOS HORIZONTALES
-        # ==============================================================
+        # Armado de columnas horizontales
         headers = ['ID Consultado', 'Subestación / Elemento', 'Paño Coordinado']
-        
-        # Añadimos dinámicamente columnas hacia el lado según el paño más largo encontrado
         for i in range(1, max_equipos_detectados + 1):
             headers.extend([
                 f'Equipo {i} ID', 
@@ -186,7 +198,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         headers.extend(['Elemento Limitante Corriente', 'Elemento Limitante Ruptura'])
         ws.append(headers)
         
-        # Estilos Encabezado
         header_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
         header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
         for col_num in range(1, len(headers) + 1):
@@ -195,30 +206,23 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-        # ==============================================================
-        # ESCRIBIR RESULTADOS EN FILAS ÚNICAS HORIZONTALES
-        # ==============================================================
         block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
         
         for r_data in filas_reporte:
             fila_completa = [r_data['id_consultado'], r_data['subestacion'], r_data['pano_nombre']]
             
-            # Colocar datos de los equipos uno al lado del otro
             for eq in r_data['equipos']:
                 corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
                 rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                 fila_completa.extend([eq['id'], eq['nombre'], eq['tipo'], corr_display, rup_display])
                 
-            # Si el paño actual tiene menos equipos que el máximo, rellenamos con vacíos
             celdas_faltantes = (max_equipos_detectados - len(r_data['equipos'])) * 5
             if celdas_faltantes > 0:
                 fila_completa.extend([""] * celdas_faltantes)
                 
-            # Cerramos la fila con los dos campos consolidados finales
             fila_completa.extend([r_data['lim_corriente'], r_data['lim_ruptura']])
             ws.append(fila_completa)
             
-            # Dar formato destacado a las últimas dos columnas de control en esta fila
             row_idx = ws.max_row
             total_cols = len(headers)
             
@@ -232,7 +236,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             for col_idx in range(1, total_cols + 1):
                 ws.cell(row=row_idx, column=col_idx).alignment = Alignment(vertical='center', horizontal='center')
 
-        # Autoajuste de columnas
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = col[0].column_letter
