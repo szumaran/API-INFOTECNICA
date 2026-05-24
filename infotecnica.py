@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
-# --- CONFIGURACIÓN INICIAL ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 try:
@@ -44,7 +43,6 @@ HEADERS = {
     "Connection": "keep-alive",
 }
 
-# --- DATACLASSES ---
 @dataclass
 class EquipoDatosTecnicos:
     estados_certificacion: Dict[str, str]
@@ -326,6 +324,11 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                 if transformador and transformador.datos_tecnicos:
                     r_t2d.append(transformador)
                     continue
+
+        r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
+        if not any([r_int, r_t2d, r_st]):
+            raise ValueError("No se encontraron registros válidos para esos IDs en este modo de consulta.")
+        return crear_archivo_excel(r_int, r_t2d, r_st)
 
         r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
         if not any([r_int, r_t2d, r_st]):
