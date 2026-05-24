@@ -85,7 +85,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Extraer datos propios del Tramo primero
+                # MODO TRAMO: Extracción directa de límites del Conductor
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -94,37 +94,36 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
                     nombre_tramo = data_seccion.get('nombre', 'Tramo')
                     
-                    # Consultar ficha técnica del propio tramo
+                    # Consumir ficha técnica general del tramo por ID numérico de campo
                     url_ficha_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/fichas-tecnicas/general/"
                     ficha_tramo = await hacer_solicitud(session, url_ficha_tramo)
                     
                     if ficha_tramo and isinstance(ficha_tramo, dict):
-                        # ID 1042 suele ser Capacidad Térmica / Corriente Nominal en tramos (ajustar si el ID de campo de la API difiere)
-                        # Buscaremos dinámicamente campos comunes de corriente/ruptura en la estructura de la ficha
-                        corr_tramo = float('inf')
-                        rup_tramo = float('inf')
+                        # Intentar capturar corriente nominal desde los IDs de campos típicos para tramos
+                        txt_corr = ""
+                        for id_campo in ['1042', '1043', '1044', '6019', '6216']:
+                            if id_campo in ficha_tramo:
+                                txt_corr = ficha_tramo[id_campo].get('valor_texto', '')
+                                if txt_corr: break
                         
-                        for k, v in ficha_tramo.items():
-                            if isinstance(v, dict):
-                                nombre_campo = str(v.get('nombre_campo', '')).lower()
-                                val_txt = v.get('valor_texto', '')
-                                if 'corriente' in nombre_campo or 'capacidad' in nombre_campo or 'nominal' in nombre_campo:
-                                    if val_txt and corr_tramo == float('inf'):
-                                        corr_tramo = limpiar_valor_float(val_txt)
-                                if 'ruptura' in nombre_campo or 'cortocircuito' in nombre_campo:
-                                    if val_txt and rup_tramo == float('inf'):
-                                        rup_tramo = limpiar_valor_float(val_txt)
+                        # Intentar capturar capacidad de ruptura (Cortocircuito) desde el ID 326
+                        txt_rup = ""
+                        if '326' in ficha_tramo:
+                            txt_rup = ficha_tramo['326'].get('valor_texto', '')
                         
-                        if corr_tramo != float('inf') or rup_tramo != float('inf'):
+                        valor_amp_tramo = limpiar_valor_float(txt_corr)
+                        valor_rup_tramo = limpiar_valor_float(txt_rup)
+                        
+                        if valor_amp_tramo != float('inf') or valor_rup_tramo != float('inf'):
                             sub_equipos_encontrados.append({
                                 'id': eq_id,
                                 'nombre': nombre_tramo,
                                 'tipo': 'CONDUCTOR TRAMO',
-                                'corriente': corr_tramo,
-                                'ruptura': rup_tramo
+                                'corriente': valor_amp_tramo,
+                                'ruptura': valor_rup_tramo
                             })
 
-                    # Resolver paños de los extremos para buscar los otros elementos en serie
+                    # Continuar con el mapeo de los extremos para traer interruptores y desconectadores
                     for llave_txt in ['linea_nombre', 'nombre', 'extremo1_descripcion', 'extremo2_descripcion']:
                         val_txt = data_seccion.get(llave_txt, '')
                         if val_txt:
@@ -167,7 +166,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
 
-            # Cosechar elementos de los paños asociados
+            # Cosechar elementos de los extremos
             if pano_nombres_a_buscar:
                 for pano_nombre in pano_nombres_a_buscar:
                     if not pano_nombre or pano_nombre in paños_ya_procesados: continue
@@ -204,7 +203,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             'ruptura': valor_ruptura
                                         })
 
-            # Guardar resultados consolidados en el Excel (Datos del Tramo + Equipos)
+            # Generación consolidada del reporte en Excel
             if sub_equipos_encontrados:
                 datos_tramo_encontrados_en_id = True
                 
