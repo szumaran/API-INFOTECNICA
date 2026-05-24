@@ -46,7 +46,6 @@ async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[
 
 def limpiar_nombre_instalacion(texto: str) -> str:
     if not texto: return ""
-    # Cortar en el guión o espacios dobles para quedarnos con el núcleo del nemotécnico de la S/E o Línea
     partes = re.split(r'\s+-\s+|\s+C\d\b', texto, flags=re.IGNORECASE)
     return partes[0].strip()
 
@@ -80,7 +79,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO INDESTRUCTIBLE: Cruce directo por texto de instalación
+                # MODO TRAMO: Cruce por texto de instalación de la sección
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -88,7 +87,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 if data_seccion and isinstance(data_seccion, dict):
                     subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
                     
-                    # Extraer el texto de los extremos o el nombre coordinado de la instalación
                     for llave_txt in ['extremo1_descripcion', 'extremo2_descripcion', 'nombre', 'linea_nombre']:
                         val_txt = data_seccion.get(llave_txt, '')
                         if val_txt:
@@ -102,7 +100,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO (FUNCIONANDO IMPECABLE)
+                # MODO DIRECTO (EVALUADO)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -133,7 +131,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # BÚSQUEDA VERTICAL DE PARAMETROS EN SERIE
+            # BÚSQUEDA VERTICAL DE PARÁMETROS EN SERIE (REPARADO)
             # ==============================================================
             for pano_nombre in pano_nombres_a_buscar:
                 if not pano_nombre: continue
