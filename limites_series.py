@@ -84,7 +84,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO
+                # MODO TRAMO: Resolución desde Secciones Tramos
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -212,17 +212,15 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                 cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
             # ==============================================================
-            # COMPORTAMIENTO FLEXIBLE SI EL TRAMO NO TIENE ELEMENTOS
+            # INCLUSIÓN INFORMATIVA SI EL TRAMO NO TIENE ELEMENTOS EN SERIE
             # ==============================================================
             if not datos_tramo_encontrados_en_id:
-                # Escribe una única fila informativa para que el ID aparezca reportado en el Excel
                 ws.append([
                     eq_id, subestacion, "N/A", 
                     "Sin equipos en serie identificados", "N/A", "N/A", "N/A",
                     "Sin elementos en serie registrados", "N/A"
                 ])
                 ultima_fila = ws.max_row
-                # Aplicamos un estilo visual neutro para las celdas informativas
                 info_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
                 info_font = Font(name='Arial', size=10, italic=True, color='595959')
                 for c in range(1, 10):
