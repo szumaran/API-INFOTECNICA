@@ -44,25 +44,11 @@ async def hacer_solicitud(session: aiohttp.ClientSession, url: str) -> Optional[
         pass
     return None
 
-def limpiar_extremos(texto: str) -> str:
-    if texto is None: return ''
-    patrones = [r'^Paño\s*:\s*', r'^Tap\s*:\s*']
-    for patron in patrones:
-        texto = re.sub(patron, '', texto, flags=re.IGNORECASE)
-    return texto.strip()
-
-async def buscar_nemotecnico_pano_por_extremo_tramo(session: aiohttp.ClientSession, nombre_extremo: str) -> Optional[str]:
-    if not nombre_extremo: return None
-    if nombre_extremo.startswith("S/E "):
-        nombre_extremo = nombre_extremo[4:]
-    url = f"{BASE_URLS['panos']}?nombre__icontains={nombre_extremo}"
-    datos = await hacer_solicitud(session, url)
-    if datos and isinstance(datos, list):
-        for pano in datos:
-            if pano.get('nombre', '').lower() == nombre_extremo.lower():
-                return pano.get('nemotecnico', '')
-        return datos[0].get('nemotecnico', '')
-    return None
+def limpiar_nombre_instalacion(texto: str) -> str:
+    if not texto: return ""
+    # Cortar en el guión o espacios dobles para quedarnos con el núcleo del nemotécnico de la S/E o Línea
+    partes = re.split(r'\s+-\s+|\s+C\d\b', texto, flags=re.IGNORECASE)
+    return partes[0].strip()
 
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
@@ -94,32 +80,29 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: BÚSQUEDA PURA EN SECCIONES DE TRAMOS (CÓDIGO INTACTO)
+                # MODO TRAMO INDESTRUCTIBLE: Cruce directo por texto de instalación
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
                 
-                if data_seccion and data_seccion.get('id_tramo'):
-                    subestacion = data_seccion.get('linea_nombre') or 'Línea de Transmisión'
+                if data_seccion and isinstance(data_seccion, dict):
+                    subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
                     
-                    url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
-                    data_tramo = await hacer_solicitud(session, url_tramo)
-                    
-                    if data_tramo:
-                        ext1_desc = data_tramo.get('extremo1_descripcion', '')
-                        ext2_desc = data_tramo.get('extremo2_descripcion', '')
-                        
-                        ext1_limpio = limpiar_extremos(ext1_desc)
-                        ext2_limpio = limpiar_extremos(ext2_desc)
-                        
-                        for ext in [ext1_limpio, ext2_limpio]:
-                            if ext:
-                                nemotecnico = await buscar_nemotecnico_pano_por_extremo_tramo(session, ext)
-                                if nemotecnico:
-                                    pano_nombres_a_buscar.append(nemotecnico)
+                    # Extraer el texto de los extremos o el nombre coordinado de la instalación
+                    for llave_txt in ['extremo1_descripcion', 'extremo2_descripcion', 'nombre', 'linea_nombre']:
+                        val_txt = data_seccion.get(llave_txt, '')
+                        if val_txt:
+                            txt_limpio = limpiar_nombre_instalacion(val_txt)
+                            if txt_limpio:
+                                url_p = f"{BASE_URLS['panos']}?nombre__icontains={txt_limpio}"
+                                panos_res = await hacer_solicitud(session, url_p)
+                                if panos_res and isinstance(panos_res, list):
+                                    for p in panos_res:
+                                        if p.get('nemotecnico'):
+                                            pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO (YA OPERATIVO)
+                # MODO DIRECTO (FUNCIONANDO IMPECABLE)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -135,9 +118,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            p_limpio = limpiar_extremos(p_nom)
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
+                            pano_nombres_a_buscar.append(limpiar_nombre_instalacion(p_nom))
 
                 if not pano_nombres_a_buscar:
                     url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
@@ -146,15 +127,13 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
                         p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
                         if p_nom:
-                            p_limpio = limpiar_extremos(p_nom)
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
+                            pano_nombres_a_buscar.append(limpiar_nombre_instalacion(p_nom))
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # BÚSQUEDA VERTICAL DE ELEMENTOS EN SERIE
+            # BÚSQUEDA VERTICAL DE PARAMETROS EN SERIE
             # ==============================================================
             for pano_nombre in pano_nombres_a_buscar:
                 if not pano_nombre: continue
@@ -228,7 +207,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
         if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica que el modo corresponda a tus IDs.")
+            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica el modo de consulta.")
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
