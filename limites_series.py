@@ -36,7 +36,6 @@ async def buscar_limites_series_motor(list_ids: List[int]) -> str:
         resumen_panos = []
 
         for eq_id in list_ids:
-            # Buscar el paño asociado al ID
             url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
             async with session.get(url_eq, headers=HEADERS) as resp:
                 data_eq = await resp.json() if resp.status == 200 else None
