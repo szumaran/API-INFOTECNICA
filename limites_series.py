@@ -20,7 +20,7 @@ BASE_URLS = {
 }
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://infotecnica.coordinador.cl/",
     "Origin": "https://infotecnica.coordinador.cl",
@@ -52,9 +52,7 @@ def limpiar_nombre_instalacion(texto: str) -> str:
     return texto.strip()
 
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
-    # Limitamos la ráfaga a nivel de conector para resguardar la IP contra bloqueos técnicos
-    connector = aiohttp.TCPConnector(limit_per_host=3)
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession() as session:
         
         wb = Workbook()
         ws = wb.active
@@ -76,7 +74,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
             
         datos_agregados = False
-        paños_ya_procesados = set()
 
         for eq_id in list_ids:
             pano_nombres_a_buscar = []
@@ -84,7 +81,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Resolución directa desde la Sección de Tramo
+                # MODO TRAMO: Consulta limpia a Secciones Tramos de tu tabla
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -105,7 +102,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO: Equipos puntuales
+                # MODO DIRECTO: Equipos independientes
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -136,11 +133,10 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # COSECHA VERTICAL DE ELEMENTOS EN SERIE
+            # COSECHA VERTICAL DE PARÁMETROS EN SERIE (CORREGIDA)
             # ==============================================================
             for pano_nombre in pano_nombres_a_buscar:
-                if not pano_nombre or pano_nombre in paños_ya_procesados: continue
-                paños_ya_procesados.add(pano_nombre)
+                if not pano_nombre: continue
                 
                 endpoints_series = ['interruptores', 'desconectadores', 'transformadores_corriente', 'trampas_ondas']
                 sub_equipos_encontrados = []
@@ -151,7 +147,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     
                     if datos_api and isinstance(datos_api, list):
                         for item in datos_api:
-                            await asyncio.sleep(0.05)  # Delay mínimo para no ahogar los sockets
                             url_ficha = f"{BASE_URLS[tipo]}/{item['id']}/fichas-tecnicas/general/"
                             ficha = await hacer_solicitud(session, url_ficha)
                             
@@ -184,7 +179,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     inicio_bloque_row = ws.max_row + 1
                     
                     for eq in sub_equipos_encontrados:
-                        corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                        corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
                         rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                         
                         ws.append([
