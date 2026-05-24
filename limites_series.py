@@ -121,7 +121,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Extracción de Conductor
+                # MODO TRAMO
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -177,7 +177,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
 
-            # Cosechar elementos de los extremos
             if pano_nombres_a_buscar:
                 for pano_nombre in pano_nombres_a_buscar:
                     if not pano_nombre or pano_nombre in paños_ya_procesados: continue
@@ -214,7 +213,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             'ruptura': valor_ruptura
                                         })
 
-            # Generar filas en Excel
             if sub_equipos_encontrados:
                 datos_tramo_encontrados_en_id = True
                 
