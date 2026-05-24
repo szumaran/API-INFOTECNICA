@@ -42,31 +42,15 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         ws = wb.active
         ws.title = "Análisis de Elementos en Serie"
         
-        headers = [
-            'ID Consultado', 'Subestación / Elemento', 'Paño Coordinado', 
-            'Equipo en Serie', 'Tipo de Equipo', 'Capacidad Corriente [A]', 
-            'Cap. Ruptura Simétrica [kA]', 'Elemento Limitante Corriente', 'Elemento Limitante Ruptura'
-        ]
-        ws.append(headers)
-        
-        header_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
-        header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
-        for col_num in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-            
-        datos_agregados = False
+        # Guardaremos los resultados procesados en memoria antes de escribir para saber el máximo de columnas dinámicas
+        filas_reporte = []
+        max_equipos_detectados = 0
 
         for eq_id in list_ids:
             pano_nombres_a_buscar = []
             subestacion = 'Desconocida'
 
             if es_modo_tramo:
-                # ==============================================================
-                # MODO TRAMO CORREGIDO: El ID ingresado corresponde a Secciones de Tramos
-                # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 async with session.get(url_seccion, headers=HEADERS) as resp:
                     data_seccion = await resp.json() if resp.status == 200 else None
@@ -74,7 +58,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 if data_seccion and data_seccion.get('id_tramo'):
                     subestacion = data_seccion.get('linea_nombre') or 'Línea de Transmisión'
                     
-                    # Vamos a buscar los extremos del tramo de manera robusta
                     url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
                     async with session.get(url_tramo, headers=HEADERS) as resp_t:
                         data_tramo = await resp_t.json() if resp_t.status == 200 else None
@@ -83,7 +66,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         extremo1 = data_tramo.get('extremo1_descripcion', '')
                         extremo2 = data_tramo.get('extremo2_descripcion', '')
                         
-                        # Buscamos por texto el nemotécnico de cada extremo de forma homóloga al extractor general
                         for ext in [extremo1, extremo2]:
                             if ext:
                                 ext_limpio = re.sub(r'^(Paño\s*:\s*|Tap\s*:\s*|S/E\s*)', '', ext, flags=re.IGNORECASE).strip()
@@ -99,9 +81,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                         if panos_data[0].get('nemotecnico'):
                                             pano_nombres_a_buscar.append(panos_data[0].get('nemotecnico'))
             else:
-                # ==============================================================
-                # MODO DIRECTO: Mantiene tu lógica de trafos e interruptores intacta
-                # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 async with session.get(url_eq, headers=HEADERS) as resp:
                     data_eq = await resp.json() if resp.status == 200 else None
@@ -134,9 +113,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if not pano_nombres_a_buscar: continue
 
-            # ==============================================================
-            # PROCESAR CADA PAÑO INDEXADO PARA EXTRAER EL DESGLOSE EN SERIE
-            # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
                 
@@ -173,45 +149,90 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                 })
 
                 if sub_equipos_encontrados:
-                    datos_agregados = True
+                    max_equipos_detectados = max(max_equipos_detectados, len(sub_equipos_encontrados))
                     
+                    # Calcular ganadores / limitantes
                     limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
                     equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
                     limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
 
-                    inicio_bloque_row = ws.max_row + 1
-                    
-                    for eq in sub_equipos_encontrados:
-                        corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
-                        rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
-                        
-                        ws.append([
-                            eq_id, subestacion, pano_nombre, 
-                            eq['nombre'], eq['tipo'], corr_display, rup_display,
-                            "", ""
-                        ])
-                    
-                    fin_bloque_row = ws.max_row
-                    
-                    txt_lim_corr = f"{limitante_corriente['nombre']} ({limitante_corriente['corriente']} A)"
-                    txt_lim_rup = f"{limitante_ruptura['nombre']} ({limitante_ruptura['ruptura']} kA)" if limitante_ruptura else "N/A"
-                    
-                    ws.cell(row=inicio_bloque_row, column=8, value=txt_lim_corr)
-                    ws.cell(row=inicio_bloque_row, column=9, value=txt_lim_rup)
-                    
-                    block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
-                    
-                    for r in range(inicio_bloque_row, fin_bloque_row + 1):
-                        for c in range(1, 10):
-                            cell = ws.cell(row=r, column=c)
-                            if c in [8, 9]:
-                                cell.fill = block_fill
-                                cell.font = Font(name='Arial', size=10, bold=True, color='C00000')
-                            cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
+                    filas_reporte.append({
+                        'id_consultado': eq_id,
+                        'subestacion': subestacion,
+                        'pano_nombre': pano_nombre,
+                        'equipos': sub_equipos_encontrados,
+                        'lim_corriente': f"{limitante_corriente['nombre']} (ID: {limitante_corriente['id']}) - {limitante_corriente['corriente']} A",
+                        'lim_ruptura': f"{limitante_ruptura['nombre']} (ID: {limitante_ruptura['id']}) - {limitante_ruptura['ruptura']} kA" if limitante_ruptura else "N/A"
+                    })
 
-        if not datos_agregados:
+        if not filas_reporte:
             raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado.")
 
+        # ==============================================================
+        # CONSTRUCCIÓN DINÁMICA DE ENCABEZADOS HORIZONTALES
+        # ==============================================================
+        headers = ['ID Consultado', 'Subestación / Elemento', 'Paño Coordinado']
+        
+        # Añadimos dinámicamente columnas hacia el lado según el paño más largo encontrado
+        for i in range(1, max_equipos_detectados + 1):
+            headers.extend([
+                f'Equipo {i} ID', 
+                f'Equipo {i} Nombre', 
+                f'Equipo {i} Tipo', 
+                f'Equipo {i} Corr [A]', 
+                f'Equipo {i} Rup [kA]'
+            ])
+            
+        headers.extend(['Elemento Limitante Corriente', 'Elemento Limitante Ruptura'])
+        ws.append(headers)
+        
+        # Estilos Encabezado
+        header_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+        header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+        # ==============================================================
+        # ESCRIBIR RESULTADOS EN FILAS ÚNICAS HORIZONTALES
+        # ==============================================================
+        block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
+        
+        for r_data in filas_reporte:
+            fila_completa = [r_data['id_consultado'], r_data['subestacion'], r_data['pano_nombre']]
+            
+            # Colocar datos de los equipos uno al lado del otro
+            for eq in r_data['equipos']:
+                corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
+                rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
+                fila_completa.extend([eq['id'], eq['nombre'], eq['tipo'], corr_display, rup_display])
+                
+            # Si el paño actual tiene menos equipos que el máximo, rellenamos con vacíos
+            celdas_faltantes = (max_equipos_detectados - len(r_data['equipos'])) * 5
+            if celdas_faltantes > 0:
+                fila_completa.extend([""] * celdas_faltantes)
+                
+            # Cerramos la fila con los dos campos consolidados finales
+            fila_completa.extend([r_data['lim_corriente'], r_data['lim_ruptura']])
+            ws.append(fila_completa)
+            
+            # Dar formato destacado a las últimas dos columnas de control en esta fila
+            row_idx = ws.max_row
+            total_cols = len(headers)
+            
+            celda_m_corr = ws.cell(row=row_idx, column=total_cols - 1)
+            celda_m_rup = ws.cell(row=row_idx, column=total_cols)
+            
+            for c_res in [celda_m_corr, celda_m_rup]:
+                c_res.fill = block_fill
+                c_res.font = Font(name='Arial', size=10, bold=True, color='C00000')
+                
+            for col_idx in range(1, total_cols + 1):
+                ws.cell(row=row_idx, column=col_idx).alignment = Alignment(vertical='center', horizontal='center')
+
+        # Autoajuste de columnas
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = col[0].column_letter
