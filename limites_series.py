@@ -175,7 +175,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         inicio_bloque_row = ws.max_row + 1
                         
                         for eq in sub_equipos_encontrados:
-                            corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                            corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
                             rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                             
                             ws.append([
