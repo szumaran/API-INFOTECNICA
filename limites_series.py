@@ -57,7 +57,7 @@ async def buscar_nemotecnico_pano_por_extremo_tramo(session: aiohttp.ClientSessi
         nombre_extremo = nombre_extremo[4:]
     url = f"{BASE_URLS['panos']}?nombre__icontains={nombre_extremo}"
     datos = await hacer_solicitud(session, url)
-    if datos:
+    if datos and isinstance(datos, list):
         for pano in datos:
             if pano.get('nombre', '').lower() == nombre_extremo.lower():
                 return pano.get('nemotecnico', '')
@@ -94,33 +94,42 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO VERTICTAL CORREGIDO Y VALIDADO (HOMÓLOGO A TU EXRACTOR 1)
+                # MODO TRAMO: REFORZADO CON DOBLE VIA DE BUSQUEDA
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
                 
-                if data_seccion and data_seccion.get('id_tramo'):
+                if data_seccion:
                     subestacion = data_seccion.get('linea_nombre') or 'Línea de Transmisión'
-                    url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
-                    data_tramo = await hacer_solicitud(session, url_tramo)
                     
-                    if data_tramo:
-                        # Rescatamos descripciones nativas de los extremos
-                        ext1_desc = data_tramo.get('extremo1_descripcion', '')
-                        ext2_desc = data_tramo.get('extremo2_descripcion', '')
-                        
-                        # Limpieza usando el método original exacto
-                        ext1_limpio = limpiar_extremos(ext1_desc)
-                        ext2_limpio = limpiar_extremos(ext2_desc)
-                        
-                        for ext in [ext1_limpio, ext2_limpio]:
-                            if ext:
-                                nemotecnico = await buscar_nemotecnico_pano_por_extremo_tramo(session, ext)
-                                if nemotecnico:
-                                    pano_nombres_a_buscar.append(nemotecnico)
+                    # Vía 1: Buscar por extremos del tramo principal (Lógica Extractor 1)
+                    if data_seccion.get('id_tramo'):
+                        url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
+                        data_tramo = await hacer_solicitud(session, url_tramo)
+                        if data_tramo:
+                            ext1_desc = data_tramo.get('extremo1_descripcion', '')
+                            ext2_desc = data_tramo.get('extremo2_descripcion', '')
+                            
+                            ext1_limpio = limpiar_extremos(ext1_desc)
+                            ext2_limpio = limpiar_extremos(ext2_desc)
+                            
+                            for ext in [ext1_limpio, ext2_limpio]:
+                                if ext:
+                                    nemotecnico = await buscar_nemotecnico_pano_por_extremo_tramo(session, ext)
+                                    if nemotecnico:
+                                        pano_nombres_a_buscar.append(nemotecnico)
+                    
+                    # Vía 2 (Respaldo definitivo): Si la vía 1 falló, interrogar al endpoint directo de paños de la sección
+                    if not pano_nombres_a_buscar:
+                        url_panos_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/panos/"
+                        data_panos_relacionados = await hacer_solicitud(session, url_panos_tramo)
+                        if data_panos_relacionados and isinstance(data_panos_relacionados, list):
+                            for p_rel in data_panos_relacionados:
+                                if p_rel.get('nemotecnico'):
+                                    pano_nombres_a_buscar.append(p_rel.get('nemotecnico'))
             else:
                 # ==============================================================
-                # MODO DIRECTO VERTICAL VALIDADO (HOMÓLOGO A TU EXTRACTOR 1)
+                # MODO DIRECTO: (YA VALIDADÍSIMO Y FUNCIONANDO)
                 # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
@@ -154,7 +163,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             if not pano_nombres_a_buscar: continue
 
             # ==============================================================
-            # COSECHA EN SERIE ESTABLE
+            # COSECHA VERTICAL ESTABLE
             # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
@@ -228,7 +237,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                             cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
         if not datos_agregados:
-            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica que el modo (Directo o Tramo) corresponda con los tipos de ID ingresados.")
+            raise ValueError("No se encontraron elementos en serie para los IDs ingresados. Verifica el modo seleccionado.")
 
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
