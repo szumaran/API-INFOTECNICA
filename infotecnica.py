@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Dict, List, Optional
 
-# openpyxl para compatibilidad multiplataforma
+# openpyxl para compatibilidad multiplataforma en la nube (Linux)
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
@@ -70,33 +70,6 @@ class TransformadorDatosTecnicos(EquipoDatosTecnicos):
     pot_sec_cero: Optional[str] = None
 
 @dataclass
-class Transformador3DDatosTecnicos(EquipoDatosTecnicos):
-    tension_at: Optional[str] = None
-    tension_mt: Optional[str] = None
-    tension_bt: Optional[str] = None
-    capacidad_at: Optional[str] = None
-    capacidad_mt: Optional[str] = None
-    capacidad_bt: Optional[str] = None
-    capacidad_at_onaf1: Optional[str] = None
-    capacidad_mt_onaf1: Optional[str] = None
-    capacidad_bt_onaf1: Optional[str] = None
-    capacidad_at_onaf2: Optional[str] = None
-    capacidad_mt_onaf2: Optional[str] = None
-    capacidad_bt_onaf2: Optional[str] = None
-    imp_sec_pos_AT_MT: Optional[str] = None
-    pot_sec_pos_AT_MT: Optional[str] = None
-    imp_sec_pos_MT_BT: Optional[str] = None
-    pot_sec_pos_MT_BT: Optional[str] = None
-    imp_sec_pos_BT_AT: Optional[str] = None
-    pot_sec_pos_BT_AT: Optional[str] = None
-    imp_sec_cero_AT_MT: Optional[str] = None
-    pot_sec_cero_AT_MT: Optional[str] = None
-    imp_sec_cero_MT_BT: Optional[str] = None
-    pot_sec_cero_MT_BT: Optional[str] = None
-    imp_sec_cero_BT_AT: Optional[str] = None
-    pot_sec_cero_BT_AT: Optional[str] = None
-
-@dataclass
 class SeccionTramoDatosTecnicos(EquipoDatosTecnicos):
     tension_nominal: Optional[str] = None
     longitud_conductor: Optional[str] = None
@@ -107,33 +80,6 @@ class SeccionTramoDatosTecnicos(EquipoDatosTecnicos):
     reactancia_sec_cero: Optional[str] = None
     susceptancia_sec_cero: Optional[str] = None
     limites_termicos: Dict[str, Any] = None
-
-@dataclass
-class DesconectadorDatosTecnicos(EquipoDatosTecnicos):
-    nivel_tension: Optional[str] = None
-    corriente_nominal: Optional[str] = None
-    tipo_desconectador: Optional[str] = None
-
-@dataclass
-class TransformadorCorrienteDatosTecnicos(EquipoDatosTecnicos):
-    relacion_transformacion: Optional[str] = None
-    precision: Optional[str] = None
-    corriente_primaria: Optional[str] = None
-    elemento_asociado: Optional[str] = None
-    proteccion_asociada: Optional[str] = None
-
-@dataclass
-class TrampasOndasDatosTecnicos(EquipoDatosTecnicos):
-    corriente_nominal: Optional[str] = None
-    linea_asociada: Optional[str] = None
-
-@dataclass
-class UnidadesDatosTecnicos(EquipoDatosTecnicos):
-    tension_nominal: Optional[str] = None
-    tecnologia: Optional[str] = None
-    potencia_neta: Optional[str] = None
-    minimo_tecnico: Optional[str] = None
-    subestacion_nombre: Optional[str] = None
 
 @dataclass
 class Equipo:
@@ -154,10 +100,6 @@ class Transformador(Equipo):
     datos_tecnicos: TransformadorDatosTecnicos
 
 @dataclass
-class Transformador3D(Equipo):
-    datos_tecnicos: Transformador3DDatosTecnicos
-
-@dataclass
 class SeccionTramo(Equipo):
     id_linea: int
     nombre_linea: str
@@ -166,23 +108,6 @@ class SeccionTramo(Equipo):
     extremo1: str
     extremo2: str
     datos_tecnicos: SeccionTramoDatosTecnicos
-
-@dataclass
-class Desconectador(Equipo):
-    datos_tecnicos: DesconectadorDatosTecnicos
-
-@dataclass
-class TransformadorCorriente(Equipo):
-    datos_tecnicos: TransformadorCorrienteDatosTecnicos
-
-@dataclass
-class TrampaOnda(Equipo):
-    datos_tecnicos: TrampasOndasDatosTecnicos
-
-@dataclass
-class Unidad(Equipo):
-    central_nombre: Optional[str]
-    datos_tecnicos: UnidadesDatosTecnicos
 
 class ApiClientFactory:
     @staticmethod
@@ -204,22 +129,6 @@ class ApiClient:
             logging.error(f"Error al realizar solicitud a {url}: {e}")
             return None
 
-    async def obtener_nombre_subestacion(self, id_subestacion: int) -> Optional[str]:
-        if id_subestacion in self.nombre_subestacion_cache:
-            return self.nombre_subestacion_cache[id_subestacion]
-        url = f"{BASE_URLS['subestaciones']}/{id_subestacion}"
-        datos = await self.hacer_solicitud(url)
-        nombre = datos.get('nombre') if datos else None
-        self.nombre_subestacion_cache[id_subestacion] = nombre
-        return nombre
-
-    async def buscar_equipos_por_subestacion_nombre(self, nombre_subestacion: str, tipo_equipo: str) -> List[Dict[str, Any]]:
-        if nombre_subestacion.startswith("S/E "):
-            nombre_subestacion = nombre_subestacion[4:]
-        url = f"{BASE_URLS[tipo_equipo]}?nombre__icontains={nombre_subestacion}"
-        datos = await self.hacer_solicitud(url)
-        return datos if datos else []
-    
     async def buscar_nemotecnico_pano_por_extremo_tramo(self, nombre_extremo: str) -> Optional[str]:
         if nombre_extremo.startswith("S/E "):
             nombre_extremo = nombre_extremo[4:]
@@ -314,27 +223,6 @@ class ApiClient:
             texto = re.sub(patron, '', texto, flags=re.IGNORECASE)
         return texto.strip()
 
-    async def obtener_secciones_por_linea(self, id_linea: int) -> List[int]:
-        url_linea = f"{BASE_URLS['lineas']}/{id_linea}/"
-        datos_linea = await self.hacer_solicitud(url_linea)
-        if not datos_linea: return []
-        nemotecnico_linea = datos_linea.get('nemotecnico', '')
-        if not nemotecnico_linea: return []
-        nemotecnico_linea_clave = nemotecnico_linea[:5] + nemotecnico_linea[-5:]
-        
-        url_secciones = f"{BASE_URLS['secciones_tramos']}"
-        datos_secciones = await self.hacer_solicitud(url_secciones)
-        if not datos_secciones: return []
-
-        ids_secciones_tramos = []
-        for seccion in datos_secciones:
-            nemotecnico_seccion = seccion.get('nemotecnico', '')
-            if nemotecnico_seccion:
-                nemotecnico_seccion_clave = nemotecnico_seccion[:5] + nemotecnico_seccion[12:17]
-                if nemotecnico_seccion_clave == nemotecnico_linea_clave:
-                    ids_secciones_tramos.append(seccion['id'])
-        return ids_secciones_tramos
-
 async def procesar_interruptor(id_interruptor: int, api_client: ApiClient) -> Optional[Interruptor]:
     url_interruptor = f"{BASE_URLS['interruptores']}/{id_interruptor}"
     datos_interruptor = await api_client.hacer_solicitud(url_interruptor)
@@ -402,7 +290,7 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
     return filepath
 
 # ==============================================================================
-# ESTA ES LA FUNCIÓN LOGICA CLAVE CORREGIDA
+# FUNCIÓN MATRIZ ASÍNCRONA - CONFIGURADA AL 100% PARA LOS ARGUMENTOS NUEVOS
 # ==============================================================================
 async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
@@ -410,13 +298,11 @@ async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
         r_int, r_t2d, r_st = [], [], []
 
         if es_modo_tramo:
-            # MODO TRAMO: Procesamos los IDs buscando tramos y sus componentes internos
-            logging.info(f"Procesando en Modo TRAMO los IDs: {list_ids}")
+            logging.info(f"[PROCESO] Ejecutando Modo TRAMO para los IDs: {list_ids}")
             for t_id in list_ids:
                 seccion = await procesar_seccion_tramo(t_id, api_client)
                 if seccion:
                     r_st.append(seccion)
-                    # Levantamos dinámicamente los equipos asociados a los extremos
                     for extremo in [seccion.extremo1, seccion.extremo2]:
                         if extremo:
                             nemotecnico = await api_client.buscar_nemotecnico_pano_por_extremo_tramo(extremo)
@@ -425,27 +311,25 @@ async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
                                 for eq in int_data:
                                     r_int.append(await procesar_interruptor(eq['id'], api_client))
         else:
-            # MODO DIRECTO: Los IDs son de equipos. Evaluamos inteligentemente qué tipo de equipo es.
-            logging.info(f"Procesando en Modo DIRECTO de equipos los IDs: {list_ids}")
+            logging.info(f"[PROCESO] Ejecutando Modo DIRECTO para los IDs: {list_ids}")
             for eq_id in list_ids:
-                # 1. Intentamos ver si es un interruptor
+                # 1. Intentamos procesar como interruptor
                 interruptor = await procesar_interruptor(eq_id, api_client)
                 if interruptor and interruptor.datos_tecnicos:
                     r_int.append(interruptor)
                     continue
                 
-                # 2. Si no fue interruptor, probamos si es un transformador 2D
+                # 2. Intentamos procesar como transformador 2D
                 transformador = await procesar_transformador(eq_id, api_client)
                 if transformador and transformador.datos_tecnicos:
                     r_t2d.append(transformador)
                     continue
 
-        # Limpiar registros nulos
         r_int = [x for x in r_int if x]
         r_t2d = [x for x in r_t2d if x]
         r_st = [x for x in r_st if x]
         
         if not any([r_int, r_t2d, r_st]):
-            raise ValueError("La API no devolvió parámetros técnicos válidos para los IDs provistos en este modo.")
+            raise ValueError("No se encontraron registros ni parámetros técnicos válidos para los IDs provistos en las APIs.")
 
         return crear_archivo_excel(r_int, r_t2d, r_st)
