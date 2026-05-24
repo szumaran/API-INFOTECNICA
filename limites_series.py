@@ -46,12 +46,12 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         max_equipos_detectados = 0
 
         for eq_id in list_ids:
-            pano_nombres_a_buscar = []
+            panos_a_procesar = [] # Guardaremos tuplas de (id_del_paño, nemotecnico_del_paño)
             subestacion = 'Desconocida'
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO (LÓGICA ORIGINAL QUE SÍ FUNCIONA)
+                # MODO TRAMO: Buscar por Secciones de Tramos
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 async with session.get(url_seccion, headers=HEADERS) as resp:
@@ -60,84 +60,89 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 if data_seccion and data_seccion.get('id_tramo'):
                     subestacion = data_seccion.get('linea_nombre') or 'Línea de Transmisión'
                     
-                    url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
-                    async with session.get(url_tramo, headers=HEADERS) as resp_t:
-                        data_tramo = await resp_t.json() if resp_t.status == 200 else None
+                    # Consultamos directamente el endpoint de paños vinculados a esta sección
+                    url_p_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/panos/"
+                    async with session.get(url_p_tramo, headers=HEADERS) as resp_p:
+                        panos_data = await resp_p.json() if resp_p.status == 200 else []
                     
-                    if data_tramo:
-                        extremo1 = data_tramo.get('extremo1_descripcion', '')
-                        extremo2 = data_tramo.get('extremo2_descripcion', '')
+                    if panos_data:
+                        for p in panos_data:
+                            if p.get('id') and p.get('nemotecnico'):
+                                panos_a_procesar.append((p.get('id'), p.get('nemotecnico')))
+                    else:
+                        # Respaldo homólogo por texto si el endpoint del tramo viene vacío
+                        url_tramo = f"{BASE_URLS['tramos']}/{data_seccion['id_tramo']}/"
+                        async with session.get(url_tramo, headers=HEADERS) as resp_t:
+                            data_tramo = await resp_t.json() if resp_t.status == 200 else None
                         
-                        for ext in [extremo1, extremo2]:
-                            if ext:
-                                ext_limpio = re.sub(r'^(Paño\s*:\s*|Tap\s*:\s*|S/E\s*)', '', ext, flags=re.IGNORECASE).strip()
-                                url_search_pano = f"{BASE_URLS['panos']}?nombre__icontains={ext_limpio}"
-                                async with session.get(url_search_pano, headers=HEADERS) as resp_p:
-                                    panos_data = await resp_p.json() if resp_p.status == 200 else []
-                                if panos_data:
-                                    for p in panos_data:
-                                        if p.get('nombre', '').lower() == ext_limpio.lower() and p.get('nemotecnico'):
-                                            pano_nombres_a_buscar.append(p.get('nemotecnico'))
-                                            break
-                                    else:
-                                        if panos_data[0].get('nemotecnico'):
-                                            pano_nombres_a_buscar.append(panos_data[0].get('nemotecnico'))
+                        if data_tramo:
+                            for ext in [data_tramo.get('extremo1_descripcion', ''), data_tramo.get('extremo2_descripcion', '')]:
+                                if ext:
+                                    ext_limpio = re.sub(r'^(Paño\s*:\s*|Tap\s*:\s*|S/E\s*)', '', ext, flags=re.IGNORECASE).strip()
+                                    url_search_p = f"{BASE_URLS['panos']}?nombre__icontains={ext_limpio}"
+                                    async with session.get(url_search_p, headers=HEADERS) as resp_sp:
+                                        sp_data = await resp_sp.json() if resp_sp.status == 200 else []
+                                    if sp_data:
+                                        panos_a_procesar.append((sp_data[0].get('id'), sp_data[0].get('nemotecnico')))
             else:
                 # ==============================================================
-                # MODO DIRECTO (LÓGICA ORIGINAL RESTAURADA)
+                # MODO DIRECTO: Buscar por Equipos Directos
                 # ==============================================================
-                # 1. Probar si es Interruptor
+                # 1. Intentar como Interruptor
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 async with session.get(url_eq, headers=HEADERS) as resp:
                     data_eq = await resp.json() if resp.status == 200 else None
                 if data_eq:
                     subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
-                    if data_eq.get('pano_nombre'):
-                        pano_nombres_a_buscar.append(data_eq.get('pano_nombre'))
+                    if data_eq.get('id_pano') and data_eq.get('pano_nombre'):
+                        panos_a_procesar.append((data_eq.get('id_pano'), data_eq.get('pano_nombre')))
 
-                # 2. Probar si es Transformador 2D
-                if not pano_nombres_a_buscar:
+                # 2. Intentar como Trafo 2D
+                if not panos_a_procesar:
                     url_trafo2d = f"{BASE_URLS['transformadores_2d']}/{eq_id}"
                     async with session.get(url_trafo2d, headers=HEADERS) as resp:
                         data_eq = await resp.json() if resp.status == 200 else None
                     if data_eq:
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
-                        p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
-                        if p_nom:
-                            # Volvemos a limpiar usando el patrón original de "Paño :" o "Paño "
-                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
+                        if data_eq.get('id_pano') and data_eq.get('pano_nombre'):
+                            panos_a_procesar.append((data_eq.get('id_pano'), data_eq.get('pano_nombre')))
 
-                # 3. Probar si es Transformador 3D
-                if not pano_nombres_a_buscar:
+                # 3. Intentar como Trafo 3D
+                if not panos_a_procesar:
                     url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
                     async with session.get(url_trafo3d, headers=HEADERS) as resp:
                         data_eq = await resp.json() if resp.status == 200 else None
                     if data_eq:
                         subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
-                        p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
-                        if p_nom:
-                            p_limpio = re.sub(r'^Paño\s*:\s*', '', p_nom, flags=re.IGNORECASE)
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_limpio, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_limpio)
+                        if data_eq.get('id_pano') and data_eq.get('pano_nombre'):
+                            panos_a_procesar.append((data_eq.get('id_pano'), data_eq.get('pano_nombre')))
 
-            if not pano_nombres_a_buscar: continue
+            if not panos_a_procesar: continue
 
             # ==============================================================
-            # EXTRACCIÓN DE OBJETOS EN SERIE (PROCESAMIENTO HORIZONTAL)
+            # EXTRACCIÓN SÓLIDA DE COMPONENTES DEL PAÑO ESPECÍFICO
             # ==============================================================
-            for pano_nombre in set(pano_nombres_a_buscar):
-                if not pano_nombre: continue
-                
+            # Eliminamos duplicados de paños por ID para no repetir búsquedas
+            panos_unicos = {p[0]: p[1] for p in panos_a_procesar if p[0]}
+            
+            for id_pano, nemotecnico_pano in panos_unicos.items():
                 endpoints_series = ['interruptores', 'desconectadores', 'transformadores_corriente', 'trampas_ondas']
                 sub_equipos_encontrados = []
 
                 for tipo in endpoints_series:
-                    url_search = f"{BASE_URLS[tipo]}/?search={pano_nombre}"
+                    # Filtramos de forma ultra-precisa usando el ID del paño directo en la API (?id_pano=)
+                    url_search = f"{BASE_URLS[tipo]}/?id_pano={id_pano}"
                     async with session.get(url_search, headers=HEADERS) as resp:
                         datos_api = await resp.json() if resp.status == 200 else []
                     
+                    # Si la API no soporta id_pano para ese tipo, caemos al filtro estricto por nemotécnico exacto
+                    if not datos_api and nemotecnico_pano:
+                        url_search = f"{BASE_URLS[tipo]}/?search={nemotecnico_pano}"
+                        async with session.get(url_search, headers=HEADERS) as resp:
+                            brutos = await resp.json() if resp.status == 200 else []
+                        # Forzamos a que el código del paño esté presente sí o sí en el nemotécnico del equipo
+                        datos_api = [x for x in brutos if nemotecnico_pano.lower() in x.get('nombre', '').lower() or nemotecnico_pano.lower() in x.get('nemotecnico', '').lower()]
+
                     for item in datos_api:
                         url_ficha = f"{BASE_URLS[tipo]}/{item['id']}/fichas-tecnicas/general/"
                         async with session.get(url_ficha, headers=HEADERS) as resp:
@@ -172,26 +177,23 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     filas_reporte.append({
                         'id_consultado': eq_id,
                         'subestacion': subestacion,
-                        'pano_nombre': pano_nombre,
+                        'pano_nombre': nemotecnico_pano,
                         'equipos': sub_equipos_encontrados,
                         'lim_corriente': f"{limitante_corriente['nombre']} (ID: {limitante_corriente['id']}) - {limitante_corriente['corriente']} A",
                         'lim_ruptura': f"{limitante_ruptura['nombre']} (ID: {limitante_ruptura['id']}) - {limitante_ruptura['ruptura']} kA" if limitante_ruptura else "N/A"
                     })
 
         if not filas_reporte:
-            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado. Verifica que correspondan al modo seleccionado.")
+            raise ValueError("No se encontraron elementos en serie. Asegúrate de ingresar los IDs correctos para el modo seleccionado (Directo para Equipos, Tramo para Líneas).")
 
-        # Generar las columnas del Excel de forma horizontal
+        # ==============================================================
+        # ESCRITURA EN FORMATO TOTALMENTE HORIZONTAL
+        # ==============================================================
         headers = ['ID Consultado', 'Subestación / Elemento', 'Paño Coordinado']
         for i in range(1, max_equipos_detectados + 1):
             headers.extend([
-                f'Equipo {i} ID', 
-                f'Equipo {i} Nombre', 
-                f'Equipo {i} Tipo', 
-                f'Equipo {i} Corr [A]', 
-                f'Equipo {i} Rup [kA]'
+                f'Equipo {i} ID', f'Equipo {i} Nombre', f'Equipo {i} Tipo', f'Equipo {i} Corr [A]', f'Equipo {i} Rup [kA]'
             ])
-            
         headers.extend(['Elemento Limitante Corriente', 'Elemento Limitante Ruptura'])
         ws.append(headers)
         
