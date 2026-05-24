@@ -15,6 +15,7 @@ BASE_URLS = {
     'desconectadores': 'https://api-infotecnica.coordinador.cl/v1/desconectadores',
     'transformadores_corriente': 'https://api-infotecnica.coordinador.cl/v1/transformadores-corrientes',
     'trampas_ondas': 'https://api-infotecnica.coordinador.cl/v1/trampas-ondas',
+    'panos': 'https://api-infotecnica.coordinador.cl/v1/panos',
 }
 
 HEADERS = {
@@ -33,7 +34,7 @@ def limpiar_valor_corriente(texto_valor: Any) -> float:
     except Exception:
         return float('inf')
 
-async def buscar_limites_series_motor(list_ids: List[int]) -> str:
+async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         resumen_panos = []
 
@@ -41,38 +42,17 @@ async def buscar_limites_series_motor(list_ids: List[int]) -> str:
             pano_nombres_a_buscar = []
             subestacion = 'Desconocida'
 
-            # 1. INTENTAR COMO TRANSFORMADOR 2D
-            url_trafo2d = f"{BASE_URLS['transformadores_2d']}/{eq_id}"
-            async with session.get(url_trafo2d, headers=HEADERS) as resp:
-                if resp.status == 200:
-                    data_trafo = await resp.json()
-                    subestacion = data_trafo.get('subestacion_nombre', 'Desconocida')
-                    p_nom = data_trafo.get('pano_nombre') or data_trafo.get('coordinado_nombre')
-                    if p_nom:
-                        match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
-                        pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
-
-            # 2. INTENTAR COMO TRANSFORMADOR 3D (NUEVO)
-            if not pano_nombres_a_buscar:
-                url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
-                async with session.get(url_trafo3d, headers=HEADERS) as resp:
-                    if resp.status == 200:
-                        data_trafo3d = await resp.json()
-                        subestacion = data_trafo3d.get('subestacion_nombre', 'Desconocida')
-                        p_nom = data_trafo3d.get('pano_nombre') or data_trafo3d.get('coordinado_nombre')
-                        if p_nom:
-                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
-                            pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
-
-            # 3. INTENTAR COMO SECCIÓN DE TRAMO / LÍNEA
-            if not pano_nombres_a_buscar:
+            if es_modo_tramo:
+                # ==============================================================
+                # LÓGICA MODO TRAMO: El ID corresponde a Secciones de Líneas
+                # ==============================================================
                 url_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 async with session.get(url_tramo, headers=HEADERS) as resp:
                     if resp.status == 200:
                         data_tramo = await resp.json()
                         subestacion = data_tramo.get('subestacion_nombre') or 'Línea de Transmisión'
                         
-                        # Consultar el endpoint de paños asociados a esta sección de tramo
+                        # Consultamos los paños asociados a los extremos de esta línea
                         url_panos_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/panos/"
                         async with session.get(url_panos_tramo, headers=HEADERS) as resp_p:
                             if resp_p.status == 200:
@@ -80,11 +60,48 @@ async def buscar_limites_series_motor(list_ids: List[int]) -> str:
                                 for p in panos_asociados:
                                     if p.get('nemotecnico'):
                                         pano_nombres_a_buscar.append(p.get('nemotecnico'))
+            else:
+                # ==============================================================
+                # LÓGICA MODO DIRECTO: El ID corresponde a Equipos Directos
+                # ==============================================================
+                # 1. Intentar como Interruptor
+                url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
+                async with session.get(url_eq, headers=HEADERS) as resp:
+                    data_eq = await resp.json() if resp.status == 200 else None
+                if data_eq:
+                    subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
+                    if data_eq.get('pano_nombre'):
+                        pano_nombres_a_buscar.append(data_eq.get('pano_nombre'))
 
-            # Si no se encontró ningún paño por ninguna vía, saltamos al siguiente ID
+                # 2. Intentar como Trafo 2D
+                if not pano_nombres_a_buscar:
+                    url_trafo2d = f"{BASE_URLS['transformadores_2d']}/{eq_id}"
+                    async with session.get(url_trafo2d, headers=HEADERS) as resp:
+                        data_eq = await resp.json() if resp.status == 200 else None
+                    if data_eq:
+                        subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
+                        p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
+                        if p_nom:
+                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
+                            pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
+
+                # 3. Intentar como Trafo 3D
+                if not pano_nombres_a_buscar:
+                    url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
+                    async with session.get(url_trafo3d, headers=HEADERS) as resp:
+                        data_eq = await resp.json() if resp.status == 200 else None
+                    if data_eq:
+                        subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
+                        p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
+                        if p_nom:
+                            match = re.search(r'Paño\s+([A-Za-z0-9_-]+)', p_nom, re.IGNORECASE)
+                            pano_nombres_a_buscar.append(match.group(1) if match else p_nom)
+
             if not pano_nombres_a_buscar: continue
 
-            # 4. PROCESAR LOS PAÑOS ENCONTRADOS PARA BUSCAR SUS ELEMENTOS EN SERIE
+            # ==============================================================
+            # DETERMINACIÓN FINALIZADA: BUSCAR ELEMENTOS EN SERIE DEL PAÑO
+            # ==============================================================
             for pano_nombre in set(pano_nombres_a_buscar):
                 if not pano_nombre: continue
                 
@@ -126,7 +143,7 @@ async def buscar_limites_series_motor(list_ids: List[int]) -> str:
                     })
 
         if not resumen_panos:
-            raise ValueError("No se pudieron levantar los elementos en serie para los IDs provistos en las APIs.")
+            raise ValueError("No se encontraron elementos en serie para los IDs y el modo especificado.")
 
         wb = Workbook()
         ws = wb.active
