@@ -9,17 +9,16 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Dict, List, Optional
 
-# openpyxl reemplaza a win32com para ser compatible con la nube (Linux)
+# openpyxl para compatibilidad multiplataforma
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
-# Configuración de logging básico
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 try:
     locale.setlocale(locale.LC_NUMERIC, '')
 except Exception:
-    pass # Evita caídas en sistemas donde el locale esté configurado distinto
+    pass 
 
 BASE_URLS = {
     'subestaciones': 'https://api-infotecnica.coordinador.cl/v1/subestaciones',
@@ -293,65 +292,6 @@ class ApiClient:
                         pot_sec_cero=datos.get('6504', {}).get('valor_texto', '').replace(",", "."),
                         estados_certificacion=estados_certificacion
                     )
-                elif tipo_equipo == 'transformadores_3d':
-                    result = Transformador3DDatosTecnicos(
-                        tension_at=datos.get('5978', {}).get('valor_texto', '').replace(",", "."),
-                        tension_mt=datos.get('33', {}).get('valor_texto', '').replace(",", "."),
-                        tension_bt=datos.get('5979', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_at=datos.get('5952', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_mt=datos.get('24', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_bt=datos.get('5953', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_at_onaf1=datos.get('5954', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_mt_onaf1=datos.get('5955', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_bt_onaf1=datos.get('5956', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_at_onaf2=datos.get('5957', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_mt_onaf2=datos.get('5971', {}).get('valor_texto', '').replace(",", "."),
-                        capacidad_bt_onaf2=datos.get('5958', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_pos_AT_MT=datos.get('37', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_pos_AT_MT=datos.get('38', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_pos_MT_BT=datos.get('43', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_pos_MT_BT=datos.get('44', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_pos_BT_AT=datos.get('49', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_pos_BT_AT=datos.get('50', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_cero_AT_MT=datos.get('6279', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_cero_AT_MT=datos.get('6280', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_cero_MT_BT=datos.get('6478', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_cero_MT_BT=datos.get('6479', {}).get('valor_texto', '').replace(",", "."),
-                        imp_sec_cero_BT_AT=datos.get('6281', {}).get('valor_texto', '').replace(",", "."),
-                        pot_sec_cero_BT_AT=datos.get('6282', {}).get('valor_texto', '').replace(",", "."),
-                        estados_certificacion=estados_certificacion
-                    )
-                elif tipo_equipo == 'desconectadores':
-                    result = DesconectadorDatosTecnicos(
-                        nivel_tension=datos.get('5699', {}).get('valor_texto', '').replace(",", "."),
-                        corriente_nominal=datos.get('6216', {}).get('valor_texto', '').replace(",", "."),
-                        tipo_desconectador=datos.get('7986', {}).get('valor_texto', ''),
-                        estados_certificacion=estados_certificacion
-                    )
-                elif tipo_equipo == 'transformadores_corriente':
-                    result = TransformadorCorrienteDatosTecnicos(
-                        relacion_transformacion=datos.get('458', {}).get('valor_texto', ''),
-                        precision=datos.get('460', {}).get('valor_texto', ''),
-                        corriente_primaria=datos.get('6177', {}).get('valor_texto', '').replace(",", "."),
-                        elemento_asociado=datos.get('4813', {}).get('valor_texto', ''),
-                        proteccion_asociada=datos.get('5651', {}).get('valor_texto', ''),
-                        estados_certificacion=estados_certificacion
-                    )
-                elif tipo_equipo == 'trampas_ondas':
-                    result = TrampasOndasDatosTecnicos(
-                        linea_asociada=datos.get('4868', {}).get('valor_texto', ''),
-                        corriente_nominal=datos.get('469', {}).get('valor_texto', '').replace(",", "."),
-                        estados_certificacion=estados_certificacion
-                    )
-                elif tipo_equipo == 'unidades_generadoras':
-                    result = UnidadesDatosTecnicos(
-                        subestacion_nombre=datos.get('7875', {}).get('valor_texto', ''),
-                        tecnologia=datos.get('4582', {}).get('valor_texto', ''),
-                        tension_nominal=datos.get('7247', {}).get('valor_texto', '').replace(",", "."),
-                        potencia_neta=datos.get('590', {}).get('valor_texto', '').replace(",", "."),
-                        minimo_tecnico=datos.get('7928', {}).get('valor_texto', '').replace(",", "."),
-                        estados_certificacion=estados_certificacion
-                    )
         self.datos_tecnicos_cache[cache_key] = result
         return result
 
@@ -409,41 +349,6 @@ async def procesar_transformador(id_transformador: int, api_client: ApiClient) -
     datos_tecnicos = await api_client.obtener_datos_tecnicos(id_transformador, 'transformadores_2d')
     return Transformador('Transformador 2D', id_transformador, datos_transformador.get('nombre', ''), datos_transformador.get('subestacion_nombre', ''), datos_transformador.get('propietario_nombre', ''), datos_transformador.get('coordinado_nombre', ''), datos_tecnicos)
 
-async def procesar_transformador_3d(id_transformador: int, api_client: ApiClient) -> Optional[Transformador3D]:
-    url_transformador = f"{BASE_URLS['transformadores_3d']}/{id_transformador}"
-    datos_transformador = await api_client.hacer_solicitud(url_transformador)
-    if not datos_transformador: return None
-    datos_tecnicos = await api_client.obtener_datos_tecnicos(id_transformador, 'transformadores_3d')
-    return Transformador3D('Transformador 3D', id_transformador, datos_transformador.get('nombre', ''), datos_transformador.get('subestacion_nombre', ''), datos_transformador.get('propietario_nombre', ''), datos_transformador.get('coordinado_nombre', ''), datos_tecnicos)
-
-async def procesar_desconectador(id_desconectador: int, api_client: ApiClient) -> Optional[Desconectador]:
-    url_desconectador = f"{BASE_URLS['desconectadores']}/{id_desconectador}"
-    datos_desconectador = await api_client.hacer_solicitud(url_desconectador)
-    if not datos_desconectador: return None
-    datos_tecnicos = await api_client.obtener_datos_tecnicos(id_desconectador, 'desconectadores')
-    return Desconectador('Desconectador', id_desconectador, datos_desconectador.get('nombre', ''), datos_desconectador.get('subestacion_nombre', ''), datos_desconectador.get('propietario_nombre', ''), datos_desconectador.get('pano_nombre', ''), datos_tecnicos)
-
-async def procesar_transformador_corriente(id_transformador_corriente: int, api_client: ApiClient) -> Optional[TransformadorCorriente]:
-    url_transformador_corriente = f"{BASE_URLS['transformadores_corriente']}/{id_transformador_corriente}"
-    datos_transformador_corriente = await api_client.hacer_solicitud(url_transformador_corriente)
-    if not datos_transformador_corriente: return None
-    datos_tecnicos = await api_client.obtener_datos_tecnicos(id_transformador_corriente, 'transformadores_corriente')
-    return TransformadorCorriente('Transformador Corriente', id_transformador_corriente, datos_transformador_corriente.get('nombre', ''), datos_transformador_corriente.get('subestacion_nombre', ''), datos_transformador_corriente.get('propietario_nombre', ''), datos_transformador_corriente.get('pano_nombre', ''), datos_tecnicos)
-
-async def procesar_trampa_onda(id_trampa_onda: int, api_client: ApiClient) -> Optional[TrampaOnda]:
-    url_trampa_onda = f"{BASE_URLS['trampas_ondas']}/{id_trampa_onda}"
-    datos_trampa_onda = await api_client.hacer_solicitud(url_trampa_onda)
-    if not datos_trampa_onda: return None
-    datos_tecnicos = await api_client.obtener_datos_tecnicos(id_trampa_onda, 'trampas_ondas')
-    return TrampaOnda('Trampa Onda', id_trampa_onda, datos_trampa_onda.get('nombre', ''), datos_trampa_onda.get('subestacion_nombre', ''), datos_trampa_onda.get('propietario_nombre', ''), datos_trampa_onda.get('pano_nombre', ''), datos_tecnicos)
-
-async def procesar_unidades(id_unidad: int, api_client: ApiClient) -> Optional[Unidad]:
-    url_unidad = f"{BASE_URLS['unidades_generadoras']}/{id_unidad}"
-    datos_unidad_generadora = await api_client.hacer_solicitud(url_unidad)
-    if not datos_unidad_generadora: return None
-    datos_tecnicos = await api_client.obtener_datos_tecnicos(id_unidad, 'unidades_generadoras')
-    return Unidad('Unidad Generadora', id_unidad, datos_unidad_generadora.get('nombre', ''), None, datos_unidad_generadora.get('propietario_nombre', ''), None, datos_unidad_generadora.get('central_nombre', ''), datos_tecnicos)
-
 async def procesar_seccion_tramo(id_seccion_tramo: int, api_client: ApiClient) -> Optional[SeccionTramo]:
     url_seccion_tramo = f"{BASE_URLS['secciones_tramos']}/{id_seccion_tramo}/"
     datos_seccion_tramo = await api_client.hacer_solicitud(url_seccion_tramo)
@@ -452,88 +357,13 @@ async def procesar_seccion_tramo(id_seccion_tramo: int, api_client: ApiClient) -
     tramo_info = await api_client.obtener_datos_tramo(datos_seccion_tramo.get('id_tramo', 0))
     return SeccionTramo('Sección Tramo', id_seccion_tramo, datos_seccion_tramo.get('nombre', ''), None, datos_seccion_tramo.get('propietario_nombre', ''), None, datos_seccion_tramo.get('id_linea', 0), datos_seccion_tramo.get('linea_nombre', ''), tramo_info.get('id_tramo', 0), tramo_info.get('nombre_tramo', ''), tramo_info.get('extremo1', ''), tramo_info.get('extremo2', ''), datos_tecnicos)
 
-async def obtener_equipos_por_subestacion(id_subestacion: int, api_client: ApiClient, tipo_equipo: str) -> List[Equipo]:
-    nombre_subestacion = await api_client.obtener_nombre_subestacion(id_subestacion)
-    if not nombre_subestacion: return []
-    equipos_data = await api_client.buscar_equipos_por_subestacion_nombre(nombre_subestacion, tipo_equipo)
-    tareas = []
-    if tipo_equipo == 'interruptores': tareas = [procesar_interruptor(e['id'], api_client) for e in equipos_data]
-    elif tipo_equipo == 'transformadores_2d': tareas = [procesar_transformador(e['id'], api_client) for e in equipos_data]
-    elif tipo_equipo == 'transformadores_3d': tareas = [procesar_transformador_3d(e['id'], api_client) for e in equipos_data]
-    elif tipo_equipo == 'desconectadores': tareas = [procesar_desconectador(e['id'], api_client) for e in equipos_data]
-    elif tipo_equipo == 'transformadores_corriente': tareas = [procesar_transformador_corriente(e['id'], api_client) for e in equipos_data]
-    elif tipo_equipo == 'trampas_ondas': tareas = [procesar_trampa_onda(e['id'], api_client) for e in equipos_data]
-    resultados = await asyncio.gather(*tareas)
-    return [r for r in resultados if r is not None]
-
-def convertir_a_flotante(valor: Optional[str]) -> float:
-    try:
-        return float(valor.replace(",", "."))
-    except (ValueError, AttributeError):
-        return 0.0
-
-def calcular_max_valores(*valores: float) -> Optional[float]:
-    valores_flotantes = [v for v in valores if v]
-    return max(valores_flotantes) if valores_flotantes else None
-
-def calcular_min_valores(*valores: float) -> Optional[float]:
-    valores_flotantes = [v for v in valores if v]
-    return min(valores_flotantes) if valores_flotantes else None
-
-def realizar_operaciones(datos: List[Transformador]) -> List[Dict[str, Any]]:
-    resultados = []
-    for transformador in datos:
-        dt = transformador.datos_tecnicos
-        if dt:
-            capacidad_max_at = calcular_max_valores(convertir_a_flotante(dt.capacidad_at), convertir_a_flotante(dt.capacidad_at_onaf1), convertir_a_flotante(dt.capacidad_at_onaf2))
-            pot_sec_pos = convertir_a_flotante(dt.pot_sec_pos)
-            pot_sec_cero = convertir_a_flotante(dt.pot_sec_cero)
-            resultados.append({
-                'ID Transformador': transformador.id_equipo,
-                'Nombre Transformador': transformador.nombre_equipo,
-                'Z_pos_[%]': convertir_a_flotante(dt.imp_sec_pos) * (capacidad_max_at / pot_sec_pos) if capacidad_max_at and pot_sec_pos else None,
-                'Z_cero_[%]': convertir_a_flotante(dt.imp_sec_cero) * (capacidad_max_at / pot_sec_cero) if capacidad_max_at and pot_sec_cero else None,
-                'Pot_base_[MVA]': capacidad_max_at,
-            })
-    return resultados
-
-def realizar_operaciones_3d(datos: List[Transformador3D]) -> List[Dict[str, Any]]:
-    resultados = []
-    for transformador in datos:
-        dt = transformador.datos_tecnicos
-        if dt:
-            capacidad_max_at = calcular_max_valores(convertir_a_flotante(dt.capacidad_at), convertir_a_flotante(dt.capacidad_at_onaf1), convertir_a_flotante(dt.capacidad_at_onaf2))
-            capacidad_max_mt = calcular_max_valores(convertir_a_flotante(dt.capacidad_mt), convertir_a_flotante(dt.capacidad_mt_onaf1), convertir_a_flotante(dt.capacidad_mt_onaf2))
-            capacidad_max_bt = calcular_max_valores(convertir_a_flotante(dt.capacidad_bt), convertir_a_flotante(dt.capacidad_bt_onaf1), convertir_a_flotante(dt.capacidad_bt_onaf2))
-            min_at_mt = calcular_min_valores(capacidad_max_at, capacidad_max_mt)
-            min_mt_bt = calcular_min_valores(capacidad_max_mt, capacidad_max_bt)
-            min_bt_at = calcular_min_valores(capacidad_max_bt, capacidad_max_at)
-            resultados.append({
-                'ID Transformador': transformador.id_equipo,
-                'Nombre Transformador': transformador.nombre_equipo,
-                'Z_pos_AT-MT_[%]': convertir_a_flotante(dt.imp_sec_pos_AT_MT) * (min_at_mt / convertir_a_flotante(dt.pot_sec_pos_AT_MT)) if min_at_mt and dt.pot_sec_pos_AT_MT else None,
-                'Z_pos_MT-BT_[%]': convertir_a_flotante(dt.imp_sec_pos_MT_BT) * (min_mt_bt / convertir_a_flotante(dt.pot_sec_pos_MT_BT)) if min_mt_bt and dt.pot_sec_pos_MT_BT else None,
-                'Z_pos_BT-AT_[%]': convertir_a_flotante(dt.imp_sec_pos_BT_AT) * (min_bt_at / convertir_a_flotante(dt.pot_sec_pos_BT_AT)) if min_bt_at and dt.pot_sec_pos_BT_AT else None,
-                'Pot_base_AT_MT_[MVA]': min_at_mt,
-                'Pot_base_MT_BT_[MVA]': min_mt_bt,
-                'Pot_base_BT_AT_[MVA]': min_bt_at,
-            })
-    return resultados
-
 def aplicar_color_openpyxl(cell, estado_certificacion: str):
-    """Aplica colores a la celda usando openpyxl (compatible con sistemas Linux en la nube)."""
-    colores_hex = {
-        'Validado': 'CCFFCC',   # Verde claro
-        'Rechazado': 'F4B084',  # Naranja/Rojo claro
-        'En Uso': 'FFE699'      # Amarillo claro
-    }
+    colores_hex = {'Validado': 'CCFFCC', 'Rechazado': 'F4B084', 'En Uso': 'FFE699'}
     if estado_certificacion in colores_hex:
         cell.fill = PatternFill(start_color=colores_hex[estado_certificacion], end_color=colores_hex[estado_certificacion], fill_type='solid')
 
-def crear_archivo_excel(datos_im, datos_t2d, datos_t3d, datos_st, datos_des, datos_tc, datos_to, datos_ug) -> str:
-    """Crea un archivo Excel real multiplataforma usando openpyxl."""
+def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
     wb = Workbook()
-    # Eliminar hoja default inicial
     default_sheet = wb.active
     wb.remove(default_sheet)
 
@@ -571,25 +401,51 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_t3d, datos_st, datos_des, dat
     wb.save(filepath)
     return filepath
 
-async def exportar_datos_async(ids_sub=None, ids_int=None, ids_t2d=None, ids_t3d=None, ids_st=None, ids_lin=None, ids_des=None, ids_tc=None, ids_to=None, ids_ug=None, por_secciones=False) -> str:
+# ==============================================================================
+# ESTA ES LA FUNCIÓN LOGICA CLAVE CORREGIDA
+# ==============================================================================
+async def exportar_datos_async(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         api_client = ApiClientFactory.create_client(session)
-        r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug = [], [], [], [], [], [], [], []
+        r_int, r_t2d, r_st = [], [], []
 
-        if ids_sub:
-            for s_id in ids_sub:
-                r_int.extend(await obtener_equipos_por_subestacion(s_id, api_client, 'interruptores'))
-                r_t2d.extend(await obtener_equipos_por_subestacion(s_id, api_client, 'transformadores_2d'))
-        if ids_int:
-            r_int.extend([await procesar_interruptor(i, api_client) for i in ids_int if i])
-        if ids_t2d:
-            r_t2d.extend([await procesar_transformador(i, api_client) for i in ids_t2d if i])
-        if ids_st:
-            r_st.extend([await procesar_seccion_tramo(i, api_client) for i in ids_st if i])
+        if es_modo_tramo:
+            # MODO TRAMO: Procesamos los IDs buscando tramos y sus componentes internos
+            logging.info(f"Procesando en Modo TRAMO los IDs: {list_ids}")
+            for t_id in list_ids:
+                seccion = await procesar_seccion_tramo(t_id, api_client)
+                if seccion:
+                    r_st.append(seccion)
+                    # Levantamos dinámicamente los equipos asociados a los extremos
+                    for extremo in [seccion.extremo1, seccion.extremo2]:
+                        if extremo:
+                            nemotecnico = await api_client.buscar_nemotecnico_pano_por_extremo_tramo(extremo)
+                            if nemotecnico:
+                                int_data = await api_client.buscar_equipos_por_nemotecnico(nemotecnico, 'interruptores')
+                                for eq in int_data:
+                                    r_int.append(await procesar_interruptor(eq['id'], api_client))
+        else:
+            # MODO DIRECTO: Los IDs son de equipos. Evaluamos inteligentemente qué tipo de equipo es.
+            logging.info(f"Procesando en Modo DIRECTO de equipos los IDs: {list_ids}")
+            for eq_id in list_ids:
+                # 1. Intentamos ver si es un interruptor
+                interruptor = await procesar_interruptor(eq_id, api_client)
+                if interruptor and interruptor.datos_tecnicos:
+                    r_int.append(interruptor)
+                    continue
+                
+                # 2. Si no fue interruptor, probamos si es un transformador 2D
+                transformador = await procesar_transformador(eq_id, api_client)
+                if transformador and transformador.datos_tecnicos:
+                    r_t2d.append(transformador)
+                    continue
 
-        r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
+        # Limpiar registros nulos
+        r_int = [x for x in r_int if x]
+        r_t2d = [x for x in r_t2d if x]
+        r_st = [x for x in r_st if x]
         
-        if not any([r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug]):
-            raise ValueError("No se encontraron registros válidos en la base de datos del Coordinador.")
+        if not any([r_int, r_t2d, r_st]):
+            raise ValueError("La API no devolvió parámetros técnicos válidos para los IDs provistos en este modo.")
 
-        return crear_archivo_excel(r_int, r_t2d, r_t3d, r_st, r_des, r_tc, r_to, r_ug)
+        return crear_archivo_excel(r_int, r_t2d, r_st)
