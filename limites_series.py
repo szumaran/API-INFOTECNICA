@@ -51,6 +51,52 @@ def limpiar_nombre_instalacion(texto: str) -> str:
         texto_limpio = texto_limpio.split(" - ")[0]
     return texto_limpio.strip()
 
+def buscar_valores_en_json_profundo(nodo: Any) -> tuple:
+    """
+    Escanea recursivamente TODO el JSON de la ficha técnica.
+    Busca cualquier diccionario que declare un campo_id o llave igual a los IDs objetivos
+    y extrae su valor_texto. Retorna (corriente, ruptura)
+    """
+    corriente = float('inf')
+    ruptura = float('inf')
+    
+    ids_corriente = {'1042', '1043', '1044', '1041', '6019', '6177', '6216'}
+    ids_ruptura = {'326'}
+
+    if isinstance(nodo, dict):
+        # Caso 1: Estructura indexada por el ID del campo como llave pura {"1042": {"valor_texto": "1200"}}
+        for k, v in nodo.items():
+            if k in ids_corriente and isinstance(v, dict):
+                val = limpiar_valor_float(v.get('valor_texto', ''))
+                if val != float('inf'): corriente = val
+            if k in ids_ruptura and isinstance(v, dict):
+                val = limpiar_valor_float(v.get('valor_texto', ''))
+                if val != float('inf'): ruptura = val
+        
+        # Caso 2: Estructura de lista de objetos {"campo_id": 1042, "valor_texto": "1200"}
+        campo_id_str = str(nodo.get('campo_id', '')).strip()
+        if campo_id_str in ids_corriente:
+            val = limpiar_valor_float(nodo.get('valor_texto', ''))
+            if val != float('inf'): corriente = val
+        if campo_id_str in ids_ruptura:
+            val = limpiar_valor_float(nodo.get('valor_texto', ''))
+            if val != float('inf'): ruptura = val
+
+        # Seguir buscando en profundidad dentro del diccionario
+        for v in nodo.values():
+            c_sub, r_sub = buscar_valores_en_json_profundo(v)
+            if c_sub != float('inf'): corriente = c_sub
+            if r_sub != float('inf'): ruptura = r_sub
+
+    elif isinstance(nodo, list):
+        # Caso 3: Es un arreglo de elementos, iterar uno a uno
+        for elemento in nodo:
+            c_sub, r_sub = buscar_valores_en_json_profundo(elemento)
+            if c_sub != float('inf'): corriente = c_sub
+            if r_sub != float('inf'): ruptura = r_sub
+
+    return corriente, ruptura
+
 async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     connector = aiohttp.TCPConnector(limit_per_host=2)
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -84,7 +130,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             if es_modo_tramo:
                 # ==============================================================
-                # MODO TRAMO: Límites del conductor indexando IDs de campo fijos
+                # MODO TRAMO: Extracción Recursiva Total en la Ficha Técnica
                 # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
@@ -96,29 +142,19 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                     url_ficha_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/fichas-tecnicas/general/"
                     ficha_tramo = await hacer_solicitud(session, url_ficha_tramo)
                     
-                    if ficha_tramo and isinstance(ficha_tramo, dict):
-                        txt_corr = ""
-                        for id_campo in ['1042', '1043', '1044', '6019', '6216']:
-                            if id_campo in ficha_tramo:
-                                txt_corr = ficha_tramo[id_campo].get('valor_texto', '')
-                                if txt_corr: break
-                        
-                        txt_rup = ""
-                        if '326' in ficha_tramo:
-                            txt_rup = ficha_tramo['326'].get('valor_texto', '')
-                        
-                        valor_amp_tramo = limpiar_valor_float(txt_corr)
-                        valor_rup_tramo = limpiar_valor_float(txt_rup)
-                        
-                        if valor_amp_tramo != float('inf') or valor_rup_tramo != float('inf'):
-                            sub_equipos_encontrados.append({
-                                'id': eq_id,
-                                'nombre': nombre_tramo,
-                                'tipo': 'CONDUCTOR TRAMO',
-                                'corriente': valor_amp_tramo,
-                                'ruptura': valor_rup_tramo
-                            })
+                    # Ejecutar escaneo profundo recursivo sin importar la forma del JSON
+                    valor_amp_tramo, valor_rup_tramo = buscar_valores_en_json_profundo(ficha_tramo)
+                    
+                    if valor_amp_tramo != float('inf') or valor_rup_tramo != float('inf'):
+                        sub_equipos_encontrados.append({
+                            'id': eq_id,
+                            'nombre': nombre_tramo,
+                            'tipo': 'CONDUCTOR TRAMO',
+                            'corriente': valor_amp_tramo,
+                            'ruptura': valor_rup_tramo
+                        })
 
+                    # Mapear extremos del tramo para traer los interruptores asociados
                     for llave_txt in ['linea_nombre', 'nombre', 'extremo1_descripcion', 'extremo2_descripcion']:
                         val_txt = data_seccion.get(llave_txt, '')
                         if val_txt:
@@ -150,17 +186,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                         if p_nom:
                             pano_nombres_a_buscar.append(limpiar_nombre_instalacion(p_nom))
 
-                if not pano_nombres_a_buscar:
-                    url_trafo3d = f"{BASE_URLS['transformadores_3d']}/{eq_id}"
-                    data_eq = await hacer_solicitud(session, url_trafo3d)
-                    if data_eq and isinstance(data_eq, dict):
-                        subestacion = data_eq.get('subestacion_nombre', 'Desconocida')
-                        p_nom = data_eq.get('pano_nombre') or data_eq.get('coordinado_nombre')
-                        if p_nom:
-                            pano_nombres_a_buscar.append(limpiar_nombre_instalacion(p_nom))
-
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
 
+            # Cosechar elementos de los paños
             if pano_nombres_a_buscar:
                 for pano_nombre in pano_nombres_a_buscar:
                     if not pano_nombre or pano_nombre in paños_ya_procesados: continue
@@ -197,6 +225,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             'ruptura': valor_ruptura
                                         })
 
+            # Volcar datos consolidados al Excel
             if sub_equipos_encontrados:
                 datos_tramo_encontrados_en_id = True
                 
@@ -207,7 +236,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 inicio_bloque_row = ws.max_row + 1
                 
                 for eq in sub_equipos_encontrados:
-                    corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
+                    corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
                     rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                     
                     ws.append([
@@ -237,7 +266,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             if not datos_tramo_encontrados_en_id:
                 ws.append([
                     eq_id, subestacion, "N/A", 
-                    "Sin equipos ni datos técnicos en tramo", "N/A", "N/A", "N/A",
+                    "Sin equipos ni datos técnicos registrados", "N/A", "N/A", "N/A",
                     "Sin elementos registrados", "N/A"
                 ])
                 ultima_fila = ws.max_row
