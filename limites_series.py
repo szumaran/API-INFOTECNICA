@@ -61,7 +61,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         ws.title = "Análisis de Elementos en Serie"
         
         headers = [
-            'ID Consultado', 'Subestación / Elemento', 'Paño Coordinado', 
+            'ID Consultado', 'Subestación / Elemento', 'Paño/Origen', 
             'Equipo en Serie', 'Tipo de Equipo', 'Capacidad Corriente [A]', 
             'Cap. Ruptura Simétrica [kA]', 'Elemento Limitante Corriente', 'Elemento Limitante Ruptura'
         ]
@@ -80,15 +80,51 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
         for eq_id in list_ids:
             pano_nombres_a_buscar = []
             subestacion = 'Desconocida'
+            sub_equipos_encontrados = []
             datos_tramo_encontrados_en_id = False
 
             if es_modo_tramo:
+                # ==============================================================
+                # MODO TRAMO: Extraer datos propios del Tramo primero
+                # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
                 
                 if data_seccion and isinstance(data_seccion, dict):
                     subestacion = data_seccion.get('linea_nombre') or data_seccion.get('nombre') or 'Línea de Transmisión'
+                    nombre_tramo = data_seccion.get('nombre', 'Tramo')
                     
+                    # Consultar ficha técnica del propio tramo
+                    url_ficha_tramo = f"{BASE_URLS['secciones_tramos']}/{eq_id}/fichas-tecnicas/general/"
+                    ficha_tramo = await hacer_solicitud(session, url_ficha_tramo)
+                    
+                    if ficha_tramo and isinstance(ficha_tramo, dict):
+                        # ID 1042 suele ser Capacidad Térmica / Corriente Nominal en tramos (ajustar si el ID de campo de la API difiere)
+                        # Buscaremos dinámicamente campos comunes de corriente/ruptura en la estructura de la ficha
+                        corr_tramo = float('inf')
+                        rup_tramo = float('inf')
+                        
+                        for k, v in ficha_tramo.items():
+                            if isinstance(v, dict):
+                                nombre_campo = str(v.get('nombre_campo', '')).lower()
+                                val_txt = v.get('valor_texto', '')
+                                if 'corriente' in nombre_campo or 'capacidad' in nombre_campo or 'nominal' in nombre_campo:
+                                    if val_txt and corr_tramo == float('inf'):
+                                        corr_tramo = limpiar_valor_float(val_txt)
+                                if 'ruptura' in nombre_campo or 'cortocircuito' in nombre_campo:
+                                    if val_txt and rup_tramo == float('inf'):
+                                        rup_tramo = limpiar_valor_float(val_txt)
+                        
+                        if corr_tramo != float('inf') or rup_tramo != float('inf'):
+                            sub_equipos_encontrados.append({
+                                'id': eq_id,
+                                'nombre': nombre_tramo,
+                                'tipo': 'CONDUCTOR TRAMO',
+                                'corriente': corr_tramo,
+                                'ruptura': rup_tramo
+                            })
+
+                    # Resolver paños de los extremos para buscar los otros elementos en serie
                     for llave_txt in ['linea_nombre', 'nombre', 'extremo1_descripcion', 'extremo2_descripcion']:
                         val_txt = data_seccion.get(llave_txt, '')
                         if val_txt:
@@ -101,6 +137,9 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                         if p.get('nemotecnico'):
                                             pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
+                # ==============================================================
+                # MODO DIRECTO
+                # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
                 if data_eq and isinstance(data_eq, dict):
@@ -128,13 +167,13 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
 
             pano_nombres_a_buscar = list(set(pano_nombres_a_buscar))
 
+            # Cosechar elementos de los paños asociados
             if pano_nombres_a_buscar:
                 for pano_nombre in pano_nombres_a_buscar:
                     if not pano_nombre or pano_nombre in paños_ya_procesados: continue
                     paños_ya_procesados.add(pano_nombre)
                     
                     endpoints_series = ['interruptores', 'desconectadores', 'transformadores_corriente', 'trampas_ondas']
-                    sub_equipos_encontrados = []
 
                     for tipo in endpoints_series:
                         url_search = f"{BASE_URLS[tipo]}/?search={pano_nombre}"
@@ -165,48 +204,49 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                             'ruptura': valor_ruptura
                                         })
 
-                    if sub_equipos_encontrados:
-                        datos_tramo_encontrados_en_id = True
-                        
-                        limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
-                        equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
-                        limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
+            # Guardar resultados consolidados en el Excel (Datos del Tramo + Equipos)
+            if sub_equipos_encontrados:
+                datos_tramo_encontrados_en_id = True
+                
+                limitante_corriente = min(sub_equipos_encontrados, key=lambda x: x['corriente'])
+                equipos_con_ruptura = [x for x in sub_equipos_encontrados if x['ruptura'] != float('inf')]
+                limitante_ruptura = min(equipos_con_ruptura, key=lambda x: x['ruptura']) if equipos_con_ruptura else None
 
-                        inicio_bloque_row = ws.max_row + 1
-                        
-                        for eq in sub_equipos_encontrados:
-                            corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
-                            rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
-                            
-                            ws.append([
-                                eq_id, subestacion, pano_nombre, 
-                                eq['nombre'], eq['tipo'], corr_display, rup_display,
-                                "", ""
-                            ])
-                        
-                        fin_bloque_row = ws.max_row
-                        
-                        txt_lim_corr = f"{limitante_corriente['nombre']} ({limitante_corriente['corriente']} A)"
-                        txt_lim_rup = f"{limitante_ruptura['nombre']} ({limitante_ruptura['ruptura']} kA)" if limitante_ruptura else "N/A"
-                        
-                        ws.cell(row=inicio_bloque_row, column=8, value=txt_lim_corr)
-                        ws.cell(row=inicio_bloque_row, column=9, value=txt_lim_rup)
-                        
-                        block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
-                        
-                        for r in range(inicio_bloque_row, fin_bloque_row + 1):
-                            for c in range(1, 10):
-                                cell = ws.cell(row=r, column=c)
-                                if c in [8, 9]:
-                                    cell.fill = block_fill
-                                    cell.font = Font(name='Arial', size=10, bold=True, color='C00000')
-                                cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
+                inicio_bloque_row = ws.max_row + 1
+                
+                for eq in sub_equipos_encontrados:
+                    corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                    rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
+                    
+                    ws.append([
+                        eq_id, subestacion, "Ficha Tramo" if eq['tipo'] == 'CONDUCTOR TRAMO' else pano_nombre, 
+                        eq['nombre'], eq['tipo'], corr_display, rup_display,
+                        "", ""
+                    ])
+                
+                fin_bloque_row = ws.max_row
+                
+                txt_lim_corr = f"{limitante_corriente['nombre']} ({limitante_corriente['corriente']} A)"
+                txt_lim_rup = f"{limitante_ruptura['nombre']} ({limitante_ruptura['ruptura']} kA)" if limitante_ruptura else "N/A"
+                
+                ws.cell(row=inicio_bloque_row, column=8, value=txt_lim_corr)
+                ws.cell(row=inicio_bloque_row, column=9, value=txt_lim_rup)
+                
+                block_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
+                
+                for r in range(inicio_bloque_row, fin_bloque_row + 1):
+                    for c in range(1, 10):
+                        cell = ws.cell(row=r, column=c)
+                        if c in [8, 9]:
+                            cell.fill = block_fill
+                            cell.font = Font(name='Arial', size=10, bold=True, color='C00000')
+                        cell.alignment = Alignment(vertical='center', horizontal='left' if c==4 else 'center')
 
             if not datos_tramo_encontrados_en_id:
                 ws.append([
                     eq_id, subestacion, "N/A", 
-                    "Sin equipos en serie identificados", "N/A", "N/A", "N/A",
-                    "Sin elementos en serie registrados", "N/A"
+                    "Sin equipos ni datos técnicos en tramo", "N/A", "N/A", "N/A",
+                    "Sin elementos registrados", "N/A"
                 ])
                 ultima_fila = ws.max_row
                 info_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
