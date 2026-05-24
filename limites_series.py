@@ -59,7 +59,7 @@ def buscar_valores_en_json_profundo(nodo: Any) -> tuple:
     ids_ruptura = {'326'}
 
     if isinstance(nodo, dict):
-        for k, v in nodo.items():
+        for k, v in node.items() if (node := nodo) else []:
             if k in ids_corriente and isinstance(v, dict):
                 val = limpiar_valor_float(v.get('valor_texto', ''))
                 if val != float('inf'): corriente = val
@@ -120,9 +120,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
             datos_tramo_encontrados_en_id = False
 
             if es_modo_tramo:
-                # ==============================================================
-                # MODO TRAMO
-                # ==============================================================
                 url_seccion = f"{BASE_URLS['secciones_tramos']}/{eq_id}/"
                 data_seccion = await hacer_solicitud(session, url_seccion)
                 
@@ -156,9 +153,6 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                                         if p.get('nemotecnico'):
                                             pano_nombres_a_buscar.append(p.get('nemotecnico'))
             else:
-                # ==============================================================
-                # MODO DIRECTO
-                # ==============================================================
                 url_eq = f"{BASE_URLS['interruptores']}/{eq_id}"
                 data_eq = await hacer_solicitud(session, url_eq)
                 if data_eq and isinstance(data_eq, dict):
@@ -223,7 +217,7 @@ async def buscar_limites_series_motor(list_ids: List[int], es_modo_tramo: bool) 
                 inicio_bloque_row = ws.max_row + 1
                 
                 for eq in sub_equipos_encontrados:
-                    corr_display = eq['corriente'] if eq['corriente'] != float('inf'] else 'N/A'
+                    corr_display = eq['corriente'] if eq['corriente'] != float('inf') else 'N/A'
                     rup_display = eq['ruptura'] if eq['ruptura'] != float('inf') else 'N/A'
                     
                     ws.append([
