@@ -1,4 +1,3 @@
-import streamlit as st
 import asyncio
 import aiohttp
 import logging
@@ -10,7 +9,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Any, Dict, List, Optional
 
-# openpyxl para generar el Excel de forma nativa en la nube (Linux)
+# openpyxl para generar el Excel de forma nativa en Linux (Streamlit Cloud)
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 
@@ -133,6 +132,7 @@ class ApiClient:
             return None
 
     async def buscar_nemotecnico_pano_por_extremo_tramo(self, nombre_extremo: str) -> Optional[str]:
+        if not nombre_extremo: return None
         if nombre_extremo.startswith("S/E "):
             nombre_extremo = nombre_extremo[4:]
         url = f"{BASE_URLS['panos']}?nombre__icontains={nombre_extremo}"
@@ -246,7 +246,13 @@ async def procesar_seccion_tramo(id_seccion_tramo: int, api_client: ApiClient) -
     if not datos_seccion_tramo: return None
     datos_tecnicos = await api_client.obtener_datos_tecnicos(id_seccion_tramo, 'secciones_tramos')
     tramo_info = await api_client.obtener_datos_tramo(datos_seccion_tramo.get('id_tramo', 0))
-    return SeccionTramo('Sección Tramo', id_seccion_tramo, datos_seccion_tramo.get('nombre', ''), None, datos_seccion_tramo.get('propietario_nombre', ''), None, datos_seccion_tramo.get('id_linea', 0), datos_seccion_tramo.get('linea_nombre', ''), tramo_info.get('id_tramo', 0), tramo_info.get('nombre_tramo', ''), tramo_info.get('extremo1', ''), tramo_info.get('extremo2', ''), datos_tecnicos)
+    return SeccionTramo(
+        tipo='Sección Tramo', id_equipo=id_seccion_tramo, nombre_equipo=datos_seccion_tramo.get('nombre', ''),
+        subestacion_nombre=None, propietario_nombre=datos_seccion_tramo.get('propietario_nombre', ''), pano_coordinado_nombre=None,
+        id_linea=datos_seccion_tramo.get('id_linea', 0), nombre_linea=datos_seccion_tramo.get('linea_nombre', ''),
+        id_tramo=tramo_info.get('id_tramo', 0), nombre_tramo=tramo_info.get('nombre_tramo', ''),
+        extremo1=tramo_info.get('extremo1', ''), extremo2=tramo_info.get('extremo2', ''), datos_tecnicos=datos_tecnicos
+    )
 
 def aplicar_color_openpyxl(cell, estado_certificacion: str):
     colores_hex = {'Validado': 'CCFFCC', 'Rechazado': 'F4B084', 'En Uso': 'FFE699'}
@@ -292,7 +298,6 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
     wb.save(filepath)
     return filepath
 
-# --- NÚCLEO DE EXTRACCIÓN SÍNCRONA INTERNA ---
 async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) -> str:
     async with aiohttp.ClientSession() as session:
         api_client = ApiClientFactory.create_client(session)
@@ -304,7 +309,7 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                 if seccion:
                     r_st.append(seccion)
                     for extremo in [seccion.extremo1, seccion.extremo2]:
-                        if extremo:
+                        if extremo and isinstance(extremo, str):
                             nemotecnico = await api_client.buscar_nemotecnico_pano_por_extremo_tramo(extremo)
                             if nemotecnico:
                                 int_data = await api_client.buscar_equipos_por_nemotecnico(nemotecnico, 'interruptores')
@@ -322,85 +327,7 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                     r_t2d.append(transformador)
                     continue
 
-        r_int = [x for x in r_int if x]
-        r_t2d = [x for x in r_t2d if x]
-        r_st = [x for x in r_st if x]
-        
+        r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
         if not any([r_int, r_t2d, r_st]):
             raise ValueError("No se encontraron registros válidos para esos IDs en este modo de consulta.")
-
         return crear_archivo_excel(r_int, r_t2d, r_st)
-
-
-# ==============================================================================
-# INTERFAZ GRÁFICA DE STREAMLIT (ENTORNO UNIFICADO)
-# ==============================================================================
-st.set_page_config(page_title="Extractor Infotécnica - Disgilent", page_icon="⚡", layout="wide")
-
-st.title("⚡ Extractor Masivo Infotécnica (Input desde Disgilent)")
-st.write("Pega tu lista de IDs directamente para descargar los parámetros desde el Coordinador Eléctrico")
-st.markdown("---")
-
-input_ids = st.text_area(
-    "Pega aquí la lista de IDs (Puedes pegarlos separados por comas, espacios o uno por fila copiado de Excel/Disgilent):",
-    placeholder="Ejemplo:\n3789\n4521\n8912",
-    height=200
-)
-
-tipo_busqueda = st.radio(
-    "Selecciona cómo deseas procesar esta lista de IDs:",
-    [
-        "🔍 Modo Directo: Los IDs corresponden directamente a los Equipos (Interruptores, Transformadores, etc.)",
-        "🛤️ Modo Tramo: Los IDs corresponden a Tramos (Buscar todos los equipos asociados a estos tramos)"
-    ]
-)
-
-st.markdown("---")
-boton_extraer = st.button("🚀 Iniciar Extracción Masiva Asíncrona")
-
-if boton_extraer:
-    if not input_ids.strip():
-        st.warning("⚠️ Por favor, pega al menos un ID para iniciar la extracción.")
-    else:
-        try:
-            # Extracción limpia de números con expresiones regulares
-            list_ids = [int(x) for x in re.findall(r'\b\d+\b', input_ids)]
-            
-            if not list_ids:
-                raise ValueError("No se encontraron números válidos en el cuadro de texto.")
-                
-            es_modo_tramo = "Modo Tramo" in tipo_busqueda
-
-            st.info(f"📋 Se identificaron {len(list_ids)} IDs únicos para procesar.")
-
-            with st.spinner("Llamando a las APIs del Coordinador Eléctrico..."):
-                # Abrimos un loop nuevo y limpio de forma explícita
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                try:
-                    # Ejecutamos el motor de extracción interno sin llamadas externas
-                    excel_path = loop.run_until_complete(
-                        ejecutar_extraccion_motor(list_ids=list_ids, es_modo_tramo=es_modo_tramo)
-                    )
-                finally:
-                    loop.close()
-                
-            if os.path.exists(excel_path):
-                st.success("🎉 ¡Extracción masiva finalizada con éxito!")
-                
-                with open(excel_path, "rb") as file:
-                    st.download_button(
-                        label="📥 Descargar Parámetros en Excel (.xlsx)",
-                        data=file,
-                        file_name="parametros_infotecnica.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                    
-        except ValueError as ve:
-            st.error(f"❌ Error de entrada: {ve}")
-        except Exception as e:
-            st.error(f"❌ Error en el proceso de Infotécnica: {e}")
-
-st.markdown("---")
-st.caption("© 2026 Plataforma Eléctrica - Conector de Parámetros Masivos")
