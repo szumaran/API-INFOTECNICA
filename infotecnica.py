@@ -165,10 +165,10 @@ class ApiClient:
                 result = SeccionTramoDatosTecnicos(
                     tension_nominal=datos.get('5895', {}).get('valor_texto', '').replace(",", "."),
                     longitud_conductor=datos.get('1005', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_pos=datos.get('1008', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_pos=datos.get('1076', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_pos=datos.get('1009', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_pos=datos.get('1010', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_cero=datos.get('1012', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_cero=datos.get('1090', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_cero=datos.get('1013', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_cero=datos.get('1014', {}).get('valor_texto', '').replace(",", "."),
                     limites_termicos=limites_termicos,
@@ -302,13 +302,13 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
             
             if dt and dt.limites_termicos:
                 lt = dt.limites_termicos
-                lim_15 = lt.get('1568', {}).get('valor_texto', '').replace(",", ".")
+                lim_15 = lt.get('1567', {}).get('valor_texto', '').replace(",", ".")
                 lim_20 = lt.get('1569', {}).get('valor_texto', '').replace(",", ".")
                 lim_25 = lt.get('1571', {}).get('valor_texto', '').replace(",", ".")
                 lim_30 = lt.get('1573', {}).get('valor_texto', '').replace(",", ".")
                 lim_35 = lt.get('1575', {}).get('valor_texto', '').replace(",", ".")
                 
-                est_15 = lt.get('1568', {}).get('estado_certificacion_nombre', '')
+                est_15 = lt.get('1567', {}).get('estado_certificacion_nombre', '')
                 est_20 = lt.get('1569', {}).get('estado_certificacion_nombre', '')
                 est_25 = lt.get('1571', {}).get('estado_certificacion_nombre', '')
                 est_30 = lt.get('1573', {}).get('estado_certificacion_nombre', '')
@@ -332,10 +332,10 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
                 # Colores de parámetros base
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=10), dt.estados_certificacion.get('5895', ''))
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=11), dt.estados_certificacion.get('1005', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1008', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1076', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=13), dt.estados_certificacion.get('1009', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=14), dt.estados_certificacion.get('1010', '')) 
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1012', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1090', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=16), dt.estados_certificacion.get('1013', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', ''))
                 
