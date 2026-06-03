@@ -308,10 +308,10 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
             if dt:
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=10), dt.estados_certificacion.get('5895', ''))
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=11), dt.estados_certificacion.get('1005', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1008', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1076', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=13), dt.estados_certificacion.get('1009', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=14), dt.estados_certificacion.get('1010', '')) 
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1012', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1090', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=16), dt.estados_certificacion.get('1013', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', '')) 
 
