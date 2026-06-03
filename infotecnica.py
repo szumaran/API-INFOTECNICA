@@ -161,14 +161,14 @@ class ApiClient:
             if datos:
                 estados_certificacion = {key: value.get('estado_certificacion_nombre', '') for key, value in datos.items()}
                 
-                # SEPARACIÓN CONFIRMADA: Opciones de conductor puras (1008 para R1 y 1012 para R0)
+                # REPARADO: Se mapean los IDs de la jerarquía que arreglaste arriba
                 result = SeccionTramoDatosTecnicos(
                     tension_nominal=datos.get('5895', {}).get('valor_texto', '').replace(",", "."),
                     longitud_conductor=datos.get('1005', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_pos=datos.get('1076', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_pos=datos.get('1008', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_pos=datos.get('1009', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_pos=datos.get('1010', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_cero=datos.get('1090', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_cero=datos.get('1012', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_cero=datos.get('1013', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_cero=datos.get('1014', {}).get('valor_texto', '').replace(",", "."),
                     limites_termicos=limites_termicos,
@@ -286,13 +286,34 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
 
     if datos_st:
         ws = wb.create_sheet(title="Secciones Tramos")
+        # ENCABEZADOS CORREGIDOS: Se añaden las 5 columnas para límites térmicos (15°C a 35°C)
         ws.append([
             'ID Línea', 'Nombre Línea', 'ID Tramo', 'Nombre Tramo', 'ID Sección Tramo', 'Nombre Sección Tramo', 
             'Propietario', 'Extremo 1', 'Extremo 2', 'Tensión Nominal [kV]', 'Longitud conductor [km]',
-            'R1 [Ohm]', 'X1 [Ohm]', 'B1 [uS]', 'R0 [Ohm]', 'X0 [Ohm]', 'B0 [uS]'
+            'R1 [Ohm]', 'X1 [Ohm]', 'B1 [uS]', 'R0 [Ohm]', 'X0 [Ohm]', 'B0 [uS]',
+            'Lim. Térmico 15°C', 'Lim. Térmico 20°C', 'Lim. Térmico 25°C', 'Lim. Térmico 30°C', 'Lim. Térmico 35°C'
         ])
         for item in datos_st:
             dt = item.datos_tecnicos
+            
+            # Procesar el sub-diccionario de límites térmicos de forma segura para openpyxl
+            lim_15, lim_20, lim_25, lim_30, lim_35 = '', '', '', '', ''
+            est_15, est_20, est_25, est_30, est_35 = '', '', '', '', ''
+            
+            if dt and dt.limites_termicos:
+                lt = dt.limites_termicos
+                lim_15 = lt.get('1568', {}).get('valor_texto', '').replace(",", ".")
+                lim_20 = lt.get('1569', {}).get('valor_texto', '').replace(",", ".")
+                lim_25 = lt.get('1571', {}).get('valor_texto', '').replace(",", ".")
+                lim_30 = lt.get('1573', {}).get('valor_texto', '').replace(",", ".")
+                lim_35 = lt.get('1575', {}).get('valor_texto', '').replace(",", ".")
+                
+                est_15 = lt.get('1568', {}).get('estado_certificacion_nombre', '')
+                est_20 = lt.get('1569', {}).get('estado_certificacion_nombre', '')
+                est_25 = lt.get('1571', {}).get('estado_certificacion_nombre', '')
+                est_30 = lt.get('1573', {}).get('estado_certificacion_nombre', '')
+                est_35 = lt.get('1575', {}).get('estado_certificacion_nombre', '')
+
             ws.append([
                 item.id_linea, item.nombre_linea, item.id_tramo, item.nombre_tramo, item.id_equipo, item.nombre_equipo, 
                 item.propietario_nombre, item.extremo1, item.extremo2, 
@@ -303,17 +324,27 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
                 dt.susceptancia_sec_pos if dt else '',
                 dt.resistencia_sec_cero if dt else '',
                 dt.reactancia_sec_cero if dt else '',
-                dt.susceptancia_sec_cero if dt else ''
+                dt.susceptancia_sec_cero if dt else '',
+                lim_15, lim_20, lim_25, lim_30, lim_35
             ])
+            
             if dt:
+                # Colores de parámetros base
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=10), dt.estados_certificacion.get('5895', ''))
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=11), dt.estados_certificacion.get('1005', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1076', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1008', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=13), dt.estados_certificacion.get('1009', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=14), dt.estados_certificacion.get('1010', '')) 
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1090', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1012', '')) 
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=16), dt.estados_certificacion.get('1013', '')) 
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', ''))
+                
+                # NUEVO: Colores de certificación para las celdas de límites térmicos (Columnas 18 a 22)
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=18), est_15)
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=19), est_20)
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=20), est_25)
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=21), est_30)
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=22), est_35)
 
     filepath = os.path.abspath(os.path.join(os.getcwd(), "equipos_datos.xlsx"))
     wb.save(filepath)
@@ -325,9 +356,6 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
         r_int, r_t2d, r_st = [], [], []
 
         if es_modo_tramo:
-            # ==================================================================
-            # LÓGICA DE MODO TRAMO: Foco exclusivo en Secciones Tramos + Extremos
-            # ==================================================================
             for t_id in list_ids:
                 seccion = await procesar_seccion_tramo(t_id, api_client)
                 if seccion:
@@ -340,9 +368,6 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                                 for eq in int_data:
                                     r_int.append(await procesar_interruptor(eq['id'], api_client))
         else:
-            # ==================================================================
-            # LÓGICA DE MODO DIRECTO/MASIVO: Caza masiva de Equipos Tradicionales
-            # ==================================================================
             for eq_id in list_ids:
                 interruptor = await procesar_interruptor(eq_id, api_client)
                 if interruptor and interruptor.datos_tecnicos:
