@@ -109,22 +109,6 @@ class SeccionTramo(Equipo):
     extremo2: str
     datos_tecnicos: SeccionTramoDatosTecnicos
 
-def extraer_valor_campo_profundo(nodo: Any, id_campo: str) -> str:
-    """Busca de forma recursiva el valor_texto de un campo_id en la ficha técnica."""
-    if isinstance(nodo, dict):
-        if id_campo in nodo and isinstance(nodo[id_campo], dict):
-            return nodo[id_campo].get('valor_texto', '')
-        if str(nodo.get('campo_id', '')) == id_campo:
-            return nodo.get('valor_texto', '')
-        for v in nodo.values():
-            res = extraer_valor_campo_profundo(v, id_campo)
-            if res: return res
-    elif isinstance(nodo, list):
-        for elemento in nodo:
-            res = extraer_valor_campo_profundo(elemento, id_campo)
-            if res: return res
-    return ''
-
 class ApiClientFactory:
     @staticmethod
     def create_client(session: aiohttp.ClientSession) -> 'ApiClient':
@@ -175,22 +159,18 @@ class ApiClient:
             limites_termicos = await self.hacer_solicitud(limites_termicos_endpoint)
             result = None
             if datos:
-                estados_certificacion = {}
-                if isinstance(datos, dict):
-                    for k, v in datos.items():
-                        if isinstance(v, dict) and 'estado_certificacion_nombre' in v:
-                            estados_certificacion[k] = v.get('estado_certificacion_nombre', '')
-
-                # Extracción robusta mediante escaneo profundo del JSON de la sección de tramo
+                estados_certificacion = {key: value.get('estado_certificacion_nombre', '') for key, value in datos.items()}
+                
+                # SEPARACIÓN CONFIRMADA: Opciones de conductor puras (1008 para R1 y 1012 para R0)
                 result = SeccionTramoDatosTecnicos(
-                    tension_nominal=extraer_valor_campo_profundo(datos, '5895').replace(",", "."),
-                    longitud_conductor=extraer_valor_campo_profundo(datos, '1005').replace(",", "."),
-                    resistencia_sec_pos=extraer_valor_campo_profundo(datos, '1008').replace(",", "."),
-                    reactancia_sec_pos=extraer_valor_campo_profundo(datos, '1009').replace(",", "."),
-                    susceptancia_sec_pos=extraer_valor_campo_profundo(datos, '1010').replace(",", "."),
-                    resistencia_sec_cero=extraer_valor_campo_profundo(datos, '1012').replace(",", "."),
-                    reactancia_sec_cero=extraer_valor_campo_profundo(datos, '1013').replace(",", "."),
-                    susceptancia_sec_cero=extraer_valor_campo_profundo(datos, '1014').replace(",", "."),
+                    tension_nominal=datos.get('5895', {}).get('valor_texto', '').replace(",", "."),
+                    longitud_conductor=datos.get('1005', {}).get('valor_texto', '').replace(",", "."),
+                    resistencia_sec_pos=datos.get('1008', {}).get('valor_texto', '').replace(",", "."),  
+                    reactancia_sec_pos=datos.get('1009', {}).get('valor_texto', '').replace(",", "."),
+                    susceptancia_sec_pos=datos.get('1010', {}).get('valor_texto', '').replace(",", "."),
+                    resistencia_sec_cero=datos.get('1012', {}).get('valor_texto', '').replace(",", "."),  
+                    reactancia_sec_cero=datos.get('1013', {}).get('valor_texto', '').replace(",", "."),
+                    susceptancia_sec_cero=datos.get('1014', {}).get('valor_texto', '').replace(",", "."),
                     limites_termicos=limites_termicos,
                     estados_certificacion=estados_certificacion
                 )
@@ -328,12 +308,12 @@ def crear_archivo_excel(datos_im, datos_t2d, datos_st) -> str:
             if dt:
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=10), dt.estados_certificacion.get('5895', ''))
                 aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=11), dt.estados_certificacion.get('1005', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1008', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=13), dt.estados_certificacion.get('1009', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=14), dt.estados_certificacion.get('1010', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1012', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=16), dt.estados_certificacion.get('1013', ''))
-                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', ''))
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=12), dt.estados_certificacion.get('1008', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=13), dt.estados_certificacion.get('1009', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=14), dt.estados_certificacion.get('1010', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=15), dt.estados_certificacion.get('1012', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=16), dt.estados_certificacion.get('1013', '')) 
+                aplicar_color_openpyxl(ws.cell(row=ws.max_row, column=17), dt.estados_certificacion.get('1014', '')) 
 
     filepath = os.path.abspath(os.path.join(os.getcwd(), "equipos_datos.xlsx"))
     wb.save(filepath)
@@ -345,6 +325,9 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
         r_int, r_t2d, r_st = [], [], []
 
         if es_modo_tramo:
+            # ==================================================================
+            # LÓGICA DE MODO TRAMO: Foco exclusivo en Secciones Tramos + Extremos
+            # ==================================================================
             for t_id in list_ids:
                 seccion = await procesar_seccion_tramo(t_id, api_client)
                 if seccion:
@@ -357,6 +340,9 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
                                 for eq in int_data:
                                     r_int.append(await procesar_interruptor(eq['id'], api_client))
         else:
+            # ==================================================================
+            # LÓGICA DE MODO DIRECTO/MASIVO: Caza masiva de Equipos Tradicionales
+            # ==================================================================
             for eq_id in list_ids:
                 interruptor = await procesar_interruptor(eq_id, api_client)
                 if interruptor and interruptor.datos_tecnicos:
@@ -370,5 +356,5 @@ async def ejecutar_extraccion_motor(list_ids: List[int], es_modo_tramo: bool) ->
 
         r_int = [x for x in r_int if x]; r_t2d = [x for x in r_t2d if x]; r_st = [x for x in r_st if x]
         if not any([r_int, r_t2d, r_st]):
-            raise ValueError("No se encontraron registros válidos para esos IDs en este modo de consulta.")
+            raise ValueError("No se encontraron registros válidos para esos IDs en el modo seleccionado.")
         return crear_archivo_excel(r_int, r_t2d, r_st)
