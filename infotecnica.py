@@ -165,10 +165,10 @@ class ApiClient:
                 result = SeccionTramoDatosTecnicos(
                     tension_nominal=datos.get('5895', {}).get('valor_texto', '').replace(",", "."),
                     longitud_conductor=datos.get('1005', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_pos=datos.get('1012', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_pos=datos.get('1076', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_pos=datos.get('1009', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_pos=datos.get('1010', {}).get('valor_texto', '').replace(",", "."),
-                    resistencia_sec_cero=datos.get('1076', {}).get('valor_texto', '').replace(",", "."),  
+                    resistencia_sec_cero=datos.get('1090', {}).get('valor_texto', '').replace(",", "."),  
                     reactancia_sec_cero=datos.get('1013', {}).get('valor_texto', '').replace(",", "."),
                     susceptancia_sec_cero=datos.get('1014', {}).get('valor_texto', '').replace(",", "."),
                     limites_termicos=limites_termicos,
